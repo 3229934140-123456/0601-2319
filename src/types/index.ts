@@ -230,3 +230,27 @@ export interface DashboardFilter {
   category: string | 'all';
   dateRange: '7d' | '15d' | '30d' | 'month';
 }
+
+export type BudgetFlowType =
+  | 'requisition_submit'
+  | 'requisition_approve'
+  | 'requisition_reject'
+  | 'requisition_timeout'
+  | 'outbound_cancel';
+
+export interface BudgetFlowRecord {
+  id: string;
+  departmentId: string;
+  departmentName: string;
+  type: BudgetFlowType;
+  amount: number;
+  beforeUsed: number;
+  afterUsed: number;
+  beforePending: number;
+  afterPending: number;
+  relatedId?: string;
+  relatedType?: 'requisition' | 'outbound';
+  operatorName: string;
+  remark: string;
+  createTime: string;
+}

@@ -1,12 +1,25 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { PieChart, Building2, Wallet, TrendingUp } from 'lucide-react';
 import { consumptions } from '@/mock/data';
 import { useBudgetStore } from '@/store/budgetStore';
+import { useBudgetFlowStore } from '@/store/budgetFlowStore';
 import { formatCurrency, cn } from '@/utils';
+import type { Department } from '@/types';
+import BudgetFlowModal from '@/components/BudgetFlowModal';
 
 export default function Cost() {
   const thisMonth = new Date().toISOString().slice(0, 7);
   const departments = useBudgetStore(state => state.getDepartments());
+  const pendingAmounts = useBudgetStore(state => state.pendingAmounts);
+  const getRecordsByDepartment = useBudgetFlowStore(state => state.getRecordsByDepartment);
+
+  const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
+  const [showBudgetFlowModal, setShowBudgetFlowModal] = useState(false);
+
+  const handleRowClick = (dept: Department) => {
+    setSelectedDepartment(dept);
+    setShowBudgetFlowModal(true);
+  };
 
   const stats = useMemo(() => {
     const monthlyConsumptions = consumptions.filter(c => c.consumeDate.startsWith(thisMonth));
@@ -118,7 +131,11 @@ export default function Cost() {
             </thead>
             <tbody>
               {departmentCosts.map(dept => (
-                <tr key={dept.id} className="table-row">
+                <tr
+                  key={dept.id}
+                  className="table-row cursor-pointer hover:bg-primary-50/60 transition-colors"
+                  onClick={() => handleRowClick(dept)}
+                >
                   <td className="px-6 py-4">
                     <span className="font-medium text-slate-800">{dept.name}</span>
                   </td>
@@ -164,6 +181,17 @@ export default function Cost() {
           </table>
         </div>
       </div>
+
+      {showBudgetFlowModal && selectedDepartment && (
+        <BudgetFlowModal
+          department={selectedDepartment}
+          records={getRecordsByDepartment(selectedDepartment.id)}
+          budget={selectedDepartment.monthlyBudget}
+          used={selectedDepartment.usedBudget}
+          pending={pendingAmounts[selectedDepartment.id] || 0}
+          onClose={() => setShowBudgetFlowModal(false)}
+        />
+      )}
     </div>
   );
 }

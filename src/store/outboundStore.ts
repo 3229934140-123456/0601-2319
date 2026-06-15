@@ -4,6 +4,7 @@ import type { OutboundOrder } from '@/types';
 import { generateId } from '@/utils';
 import { useInventoryStore } from './inventoryStore';
 import { useBudgetStore } from './budgetStore';
+import { useBudgetFlowStore } from './budgetFlowStore';
 
 interface OutboundState {
   orders: OutboundOrder[];
@@ -70,7 +71,30 @@ export const useOutboundStore = create<OutboundState>()(
         }
 
         const budgetStore = useBudgetStore.getState();
+        const deptBudget = budgetStore.getDepartmentBudget(order.departmentId);
+        const beforeUsed = deptBudget?.usedBudget || 0;
+        const beforePending = budgetStore.pendingAmounts[order.departmentId] || 0;
+
         budgetStore.reduceUsedBudget(order.departmentId, order.totalAmount);
+
+        const afterDeptBudget = budgetStore.getDepartmentBudget(order.departmentId);
+        const afterUsed = afterDeptBudget?.usedBudget || 0;
+        const afterPending = budgetStore.pendingAmounts[order.departmentId] || 0;
+
+        useBudgetFlowStore.getState().addRecord({
+          departmentId: order.departmentId,
+          departmentName: order.departmentName,
+          type: 'outbound_cancel',
+          amount: -order.totalAmount,
+          beforeUsed,
+          afterUsed,
+          beforePending,
+          afterPending,
+          relatedId: order.id,
+          relatedType: 'outbound',
+          operatorName: operatorName || '系统',
+          remark: '出库单取消，释放已用预算',
+        });
 
         set(state => ({
           orders: state.orders.map(o =>

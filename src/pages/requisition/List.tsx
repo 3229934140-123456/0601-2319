@@ -359,7 +359,7 @@ export default function RequisitionList() {
 
               <div className="dashboard-card p-4">
                 <h3 className="section-title mb-3">科室预算使用情况</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-slate-500 mb-1">月度预算</p>
                     <p className="text-lg font-bold text-slate-800">{formatCurrency(budget)}</p>
@@ -371,22 +371,28 @@ export default function RequisitionList() {
                     </p>
                   </div>
                   <div>
+                    <p className="text-sm text-slate-500 mb-1">审批中占用</p>
+                    <p className={`text-lg font-bold ${pending > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                      {formatCurrency(pending)}
+                    </p>
+                  </div>
+                  <div>
                     <p className="text-sm text-slate-500 mb-1">可用额度</p>
-                    <p className={`text-lg font-bold ${available >= 0 ? 'text-status-success' : 'text-status-danger'}`}>
+                    <p className={`text-xl font-extrabold ${available > 0 ? 'text-primary-600' : 'text-status-danger'}`}>
                       {formatCurrency(available)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500 mb-1">剩余额度</p>
-                    <p className={`text-lg font-bold ${remaining >= 0 ? 'text-primary-600' : 'text-status-danger'}`}>
+                    <p className="text-sm text-slate-400 mb-1">剩余额度（参考）</p>
+                    <p className="text-sm text-slate-400">
                       {formatCurrency(remaining)}
                     </p>
                   </div>
                 </div>
                 {pending > 0 && (
-                  <div className="mb-4 p-2 bg-slate-50 rounded-lg">
-                    <p className="text-sm text-slate-500">
-                      审批中占用：<span className="font-semibold text-slate-600">{formatCurrency(pending)}</span>
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-sm text-amber-700">
+                      ⚠️ 审批中占用：<span className="font-bold">{formatCurrency(pending)}</span>，已从可用额度中扣除
                     </p>
                   </div>
                 )}
@@ -406,8 +412,8 @@ export default function RequisitionList() {
                   使用率：{usageRate.toFixed(1)}%
                 </div>
                 {formItems.length > 0 && (
-                  <div className={`mt-3 p-3 rounded-lg text-sm ${
-                    totalAmount > available ? 'bg-red-50 text-status-danger' : 'bg-green-50 text-status-success'
+                  <div className={`mt-3 p-3 rounded-lg text-sm font-medium ${
+                    totalAmount > available ? 'bg-red-50 text-status-danger border border-red-200' : 'bg-green-50 text-status-success border border-green-200'
                   }`}>
                     {getApprovalTip()}
                   </div>

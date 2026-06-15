@@ -50,6 +50,18 @@ const getDateRangeDays = (range: DashboardFilter['dateRange']): number => {
   }
 };
 
+export const getDateStartStr = (range: DashboardFilter['dateRange']): string => {
+  const today = new Date();
+  if (range === 'month') {
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    return firstDay.toISOString().slice(0, 10);
+  }
+  const days = getDateRangeDays(range);
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - days);
+  return startDate.toISOString().slice(0, 10);
+};
+
 const applyFilter = (
   filter: DashboardFilter,
   consumptionsData: Consumption[],
@@ -62,7 +74,7 @@ const applyFilter = (
   const startDate = new Date(today);
   startDate.setDate(startDate.getDate() - days);
   const startStr = startDate.toISOString().slice(0, 10);
-  const thisMonth = today.toISOString().slice(0, 7);
+  const purchaseStartStr = getDateStartStr(filter.dateRange);
 
   let filteredConsumptions = consumptionsData.filter((c) => c.consumeDate >= startStr);
   if (filter.departmentId !== 'all') {
@@ -75,7 +87,7 @@ const applyFilter = (
   }
 
   let filteredPurchaseOrders = purchaseOrdersData.filter((po) =>
-    po.createTime.startsWith(thisMonth)
+    po.createTime.slice(0, 10) >= purchaseStartStr
   );
 
   const filteredPurchaseDetails: {

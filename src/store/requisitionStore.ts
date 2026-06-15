@@ -7,6 +7,7 @@ import { useInventoryStore } from './inventoryStore';
 import { useOutboundStore } from './outboundStore';
 import { useApprovalStore } from './approvalStore';
 import { useBudgetStore } from './budgetStore';
+import { useBudgetFlowStore } from './budgetFlowStore';
 
 interface RequisitionState {
   requisitions: Requisition[];
@@ -114,7 +115,28 @@ export const useRequisitionStore = create<RequisitionState>()(
         };
 
         if (needsApproval) {
+          const deptBudget = budgetStore.getDepartmentBudget(data.departmentId);
+          const beforeUsed = deptBudget?.usedBudget || 0;
+          const beforePending = budgetStore.pendingAmounts[data.departmentId] || 0;
+
           budgetStore.addPendingBudget(data.departmentId, totalAmount);
+
+          const afterPending = budgetStore.pendingAmounts[data.departmentId] || 0;
+
+          useBudgetFlowStore.getState().addRecord({
+            departmentId: data.departmentId,
+            departmentName: data.departmentName,
+            type: 'requisition_submit',
+            amount: totalAmount,
+            beforeUsed,
+            afterUsed: beforeUsed,
+            beforePending,
+            afterPending,
+            relatedId: newRequisition.id,
+            relatedType: 'requisition',
+            operatorName: '系统',
+            remark: '申领提交，占用预算',
+          });
         } else {
           const invState = useInventoryStore.getState();
           const outboundState = useOutboundStore.getState();
@@ -200,8 +222,31 @@ export const useRequisitionStore = create<RequisitionState>()(
             totalAmount: req.totalAmount,
           });
 
+          const deptBudget = budgetStore.getDepartmentBudget(req.departmentId);
+          const beforeUsed = deptBudget?.usedBudget || 0;
+          const beforePending = budgetStore.pendingAmounts[req.departmentId] || 0;
+
           budgetStore.reducePendingBudget(req.departmentId, req.totalAmount);
           budgetStore.addUsedBudget(req.departmentId, req.totalAmount);
+
+          const afterDeptBudget = budgetStore.getDepartmentBudget(req.departmentId);
+          const afterUsed = afterDeptBudget?.usedBudget || 0;
+          const afterPending = budgetStore.pendingAmounts[req.departmentId] || 0;
+
+          useBudgetFlowStore.getState().addRecord({
+            departmentId: req.departmentId,
+            departmentName: req.departmentName,
+            type: 'requisition_approve',
+            amount: 0,
+            beforeUsed,
+            afterUsed,
+            beforePending,
+            afterPending,
+            relatedId: req.id,
+            relatedType: 'requisition',
+            operatorName: approverName,
+            remark: '审批通过，预算从占用转为已用',
+          });
 
           set(state => ({
             requisitions: state.requisitions.map(r =>
@@ -229,7 +274,28 @@ export const useRequisitionStore = create<RequisitionState>()(
         const req = get().getRequisitionById(id);
         if (req) {
           const budgetStore = useBudgetStore.getState();
+          const deptBudget = budgetStore.getDepartmentBudget(req.departmentId);
+          const beforeUsed = deptBudget?.usedBudget || 0;
+          const beforePending = budgetStore.pendingAmounts[req.departmentId] || 0;
+
           budgetStore.reducePendingBudget(req.departmentId, req.totalAmount);
+
+          const afterPending = budgetStore.pendingAmounts[req.departmentId] || 0;
+
+          useBudgetFlowStore.getState().addRecord({
+            departmentId: req.departmentId,
+            departmentName: req.departmentName,
+            type: 'requisition_reject',
+            amount: -req.totalAmount,
+            beforeUsed,
+            afterUsed: beforeUsed,
+            beforePending,
+            afterPending,
+            relatedId: req.id,
+            relatedType: 'requisition',
+            operatorName: approverName,
+            remark: '审批驳回，释放占用预算',
+          });
         }
 
         const approvalState = useApprovalStore.getState();
@@ -300,8 +366,31 @@ export const useRequisitionStore = create<RequisitionState>()(
             totalAmount: req.totalAmount,
           });
 
+          const deptBudget = budgetStore.getDepartmentBudget(req.departmentId);
+          const beforeUsed = deptBudget?.usedBudget || 0;
+          const beforePending = budgetStore.pendingAmounts[req.departmentId] || 0;
+
           budgetStore.reducePendingBudget(req.departmentId, req.totalAmount);
           budgetStore.addUsedBudget(req.departmentId, req.totalAmount);
+
+          const afterDeptBudget = budgetStore.getDepartmentBudget(req.departmentId);
+          const afterUsed = afterDeptBudget?.usedBudget || 0;
+          const afterPending = budgetStore.pendingAmounts[req.departmentId] || 0;
+
+          useBudgetFlowStore.getState().addRecord({
+            departmentId: req.departmentId,
+            departmentName: req.departmentName,
+            type: 'requisition_timeout',
+            amount: 0,
+            beforeUsed,
+            afterUsed,
+            beforePending,
+            afterPending,
+            relatedId: req.id,
+            relatedType: 'requisition',
+            operatorName: '系统自动',
+            remark: '审批超时自动通过，预算从占用转为已用',
+          });
 
           set(state => ({
             requisitions: state.requisitions.map(r =>

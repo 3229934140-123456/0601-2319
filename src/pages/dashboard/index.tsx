@@ -13,11 +13,14 @@ import {
   ChevronDown,
   Download,
   FileSpreadsheet,
+  X,
+  ChevronRight,
+  ChevronDown as ChevronDownIcon,
 } from 'lucide-react';
-import { useDashboardStore } from '@/store/dashboardStore';
+import { useDashboardStore, getDateStartStr } from '@/store/dashboardStore';
 import { departments, consumptions, purchaseOrders, materials } from '@/mock/data';
-import { formatCurrency, formatNumber, cn, exportToCSV } from '@/utils';
-import type { DashboardFilter } from '@/types';
+import { formatCurrency, formatNumber, cn, exportToCSV, formatDateTime } from '@/utils';
+import type { DashboardFilter, PurchaseOrder, PurchaseOrderStatus } from '@/types';
 
 const dateRangeLabels: Record<DashboardFilter['dateRange'], string> = {
   '7d': '最近7天',
@@ -88,6 +91,7 @@ const StatCard = ({
   formatter,
   color,
   note,
+  onClick,
 }: {
   icon: React.ElementType;
   label: string;
@@ -95,13 +99,16 @@ const StatCard = ({
   formatter: (val: number) => string;
   color: string;
   note?: string;
+  onClick?: () => void;
 }) => {
   const animatedValue = useCountUp(value, 1200);
 
   return (
     <div
+      onClick={onClick}
       className={cn(
-        'relative group rounded-2xl p-5 overflow-hidden cursor-pointer',
+        'relative group rounded-2xl p-5 overflow-hidden',
+        onClick && 'cursor-pointer',
         'bg-gradient-to-br from-primary-900/60 to-primary-950/80',
         'border border-primary-700/40 backdrop-blur-xl',
         'transition-all duration-500 hover:-translate-y-1',
@@ -299,10 +306,7 @@ const ExportButtonGroup = () => {
 
   const handleExportPurchaseOrders = () => {
     const { filter } = useDashboardStore.getState();
-    const days = getDateRangeDays(filter.dateRange);
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    const startStr = startDate.toISOString().slice(0, 10);
+    const startStr = getDateStartStr(filter.dateRange);
     let filteredPOs = purchaseOrders.filter(po => po.createTime.slice(0, 10) >= startStr);
 
     if (filter.category !== 'all') {
@@ -385,9 +389,281 @@ const ExportButtonGroup = () => {
   );
 };
 
+const statusLabelMap: Record<PurchaseOrderStatus, string> = {
+  pending: '待审批',
+  approved: '已批准',
+  ordered: '已下单',
+  received: '已到货',
+  completed: '已完成',
+};
+
+const statusColorMap: Record<PurchaseOrderStatus, string> = {
+  pending: '#FF9500',
+  approved: '#5AC8FA',
+  ordered: '#1E6FD9',
+  received: '#34C759',
+  completed: '#BF5AF2',
+};
+
+const labelToStatusMap: Record<string, PurchaseOrderStatus> = {
+  '待审批': 'pending',
+  '已批准': 'approved',
+  '已下单': 'ordered',
+  '已到货': 'received',
+  '已完成': 'completed',
+};
+
+const filterPurchaseOrders = (filter: DashboardFilter, status?: PurchaseOrderStatus): PurchaseOrder[] => {
+  const startStr = getDateStartStr(filter.dateRange);
+  let filtered = purchaseOrders.filter(po => po.createTime.slice(0, 10) >= startStr);
+
+  if (status) {
+    filtered = filtered.filter(po => po.status === status);
+  }
+
+  if (filter.category !== 'all') {
+    filtered = filtered.filter(po =>
+      po.items.some(item => {
+        const mat = materials.find(m => m.id === item.materialId);
+        return mat?.category === filter.category;
+      })
+    );
+  }
+
+  return filtered;
+};
+
+interface PurchaseDrillModalProps {
+  open: boolean;
+  onClose: () => void;
+  status?: PurchaseOrderStatus;
+}
+
+const PurchaseDrillModal = ({ open, onClose, status }: PurchaseDrillModalProps) => {
+  const filter = useDashboardStore((state) => state.filter);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  if (!open) return null;
+
+  const filteredOrders = filterPurchaseOrders(filter, status);
+
+  const statusLabel = status ? statusLabelMap[status] : '全部';
+  const deptName = filter.departmentId === 'all'
+    ? '全部科室'
+    : departments.find(d => d.id === filter.departmentId)?.name || '全部科室';
+  const categoryName = filter.category === 'all' ? '全部类别' : filter.category;
+  const dateRangeName = dateRangeLabels[filter.dateRange];
+
+  const totalOrders = filteredOrders.length;
+  const totalItems = filteredOrders.reduce((sum, po) => sum + po.items.length, 0);
+  const totalAmount = filteredOrders.reduce((sum, po) => sum + po.totalAmount, 0);
+
+  const toggleRow = (poId: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(poId)) {
+        next.delete(poId);
+      } else {
+        next.add(poId);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="relative w-full max-w-6xl max-h-[85vh] rounded-2xl overflow-hidden bg-gradient-to-br from-primary-900/95 to-primary-950/98 border border-primary-700/50 backdrop-blur-xl shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-primary-700/40">
+          <div>
+            <h2 className="text-xl font-bold text-white">
+              采购明细 - {statusLabel}
+            </h2>
+            <p className="text-sm text-primary-400/70 mt-1">
+              （{deptName} / {categoryName} / {dateRangeName}）
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-9 h-9 rounded-lg flex items-center justify-center text-primary-300 hover:text-white hover:bg-primary-800/60 transition-all"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-6">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-primary-300 border-b border-primary-700/40">
+                  <th className="py-3 px-3 font-medium">订单号</th>
+                  <th className="py-3 px-3 font-medium">供应商</th>
+                  <th className="py-3 px-3 font-medium">下单时间</th>
+                  <th className="py-3 px-3 font-medium">状态</th>
+                  <th className="py-3 px-3 font-medium text-center">耗材品种数</th>
+                  <th className="py-3 px-3 font-medium text-right">订单总金额</th>
+                  <th className="py-3 px-3 font-medium text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-primary-400/70">
+                      暂无符合条件的采购订单
+                    </td>
+                  </tr>
+                ) : (
+                  filteredOrders.map(po => {
+                    const isExpanded = expandedRows.has(po.id);
+                    const matchedItems = filter.category === 'all'
+                      ? po.items
+                      : po.items.filter(item => {
+                          const mat = materials.find(m => m.id === item.materialId);
+                          return mat?.category === filter.category;
+                        });
+
+                    return (
+                      <>
+                        <tr
+                          key={po.id}
+                          className="border-b border-primary-800/30 hover:bg-primary-800/20 transition-colors"
+                        >
+                          <td className="py-3 px-3">
+                            <span
+                              className="text-primary-300 font-mono cursor-pointer hover:text-primary-100"
+                              onClick={() => toggleRow(po.id)}
+                            >
+                              {po.id}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-white">{po.supplierName}</td>
+                          <td className="py-3 px-3 text-primary-200">
+                            {formatDateTime(po.createTime)}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span
+                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                              style={{
+                                background: `${statusColorMap[po.status]}20`,
+                                color: statusColorMap[po.status],
+                              }}
+                            >
+                              {statusLabelMap[po.status]}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center text-primary-200 font-mono">
+                            {matchedItems.length}
+                          </td>
+                          <td className="py-3 px-3 text-right text-white font-mono font-semibold">
+                            {formatCurrency(po.totalAmount)}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <button
+                              onClick={() => toggleRow(po.id)}
+                              className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs text-primary-300 hover:text-white hover:bg-primary-700/50 transition-all"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  <ChevronDownIcon size={14} />
+                                  收起
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronRight size={14} />
+                                  展开
+                                </>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-primary-950/60">
+                            <td colSpan={7} className="py-0">
+                              <div className="px-6 py-4">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-left text-primary-400 border-b border-primary-700/30">
+                                      <th className="py-2 px-2 font-medium">耗材名称</th>
+                                      <th className="py-2 px-2 font-medium">规格</th>
+                                      <th className="py-2 px-2 font-medium">单位</th>
+                                      <th className="py-2 px-2 font-medium text-right">数量</th>
+                                      <th className="py-2 px-2 font-medium text-right">单价</th>
+                                      <th className="py-2 px-2 font-medium text-right">小计</th>
+                                      <th className="py-2 px-2 font-medium">类别</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {matchedItems.map(item => {
+                                      const mat = materials.find(m => m.id === item.materialId);
+                                      return (
+                                        <tr
+                                          key={item.id}
+                                          className="border-b border-primary-800/20 text-primary-200"
+                                        >
+                                          <td className="py-2 px-2 text-white">{item.materialName}</td>
+                                          <td className="py-2 px-2">{item.spec || mat?.spec || '-'}</td>
+                                          <td className="py-2 px-2">{item.unit}</td>
+                                          <td className="py-2 px-2 text-right font-mono">{item.quantity}</td>
+                                          <td className="py-2 px-2 text-right font-mono">
+                                            {formatCurrency(item.unitPrice)}
+                                          </td>
+                                          <td className="py-2 px-2 text-right font-mono font-semibold text-white">
+                                            {formatCurrency(item.subtotal)}
+                                          </td>
+                                          <td className="py-2 px-2">
+                                            <span className="text-primary-300">
+                                              {mat?.category || '-'}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-6 py-4 border-t border-primary-700/40 bg-primary-950/50">
+          <div className="flex items-center gap-6 text-sm">
+            <div className="text-primary-300">
+              订单总数：<span className="text-white font-mono font-bold ml-1">{totalOrders}</span> 个
+            </div>
+            <div className="text-primary-300">
+              耗材总件数：<span className="text-white font-mono font-bold ml-1">{totalItems}</span> 件
+            </div>
+            <div className="text-primary-300">
+              总金额：<span className="text-primary-400 font-mono font-bold ml-1 text-lg">{formatCurrency(totalAmount)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function DashboardPage() {
   const { stats, filter, refreshStats } = useDashboardStore();
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [drillModalOpen, setDrillModalOpen] = useState(false);
+  const [drillStatus, setDrillStatus] = useState<PurchaseOrderStatus | undefined>(undefined);
+
+  const handlePurchaseDrill = (status?: PurchaseOrderStatus) => {
+    setDrillStatus(status);
+    setDrillModalOpen(true);
+  };
 
   useEffect(() => {
     refreshStats();
@@ -676,6 +952,7 @@ export default function DashboardPage() {
             formatter={formatCurrency}
             color="#FF9500"
             note={stats.purchaseFilterNote}
+            onClick={() => handlePurchaseDrill()}
           />
           <StatCard
             icon={AlertTriangle}
@@ -777,7 +1054,8 @@ export default function DashboardPage() {
             {stats.purchaseProgress.map((item, idx) => (
               <div
                 key={item.status}
-                className="rounded-xl p-4 bg-primary-950/50 border border-primary-800/40 hover:border-primary-600/50 transition-all"
+                onClick={() => handlePurchaseDrill(labelToStatusMap[item.status])}
+                className="rounded-xl p-4 bg-primary-950/50 border border-primary-800/40 hover:border-primary-600/50 transition-all cursor-pointer"
               >
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm text-primary-200 font-medium">{item.status}</span>
@@ -805,6 +1083,12 @@ export default function DashboardPage() {
             ))}
           </div>
         </div>
+
+        <PurchaseDrillModal
+          open={drillModalOpen}
+          onClose={() => setDrillModalOpen(false)}
+          status={drillStatus}
+        />
       </div>
     </div>
   );
