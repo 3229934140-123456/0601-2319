@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useRequisitionStore } from '@/store/requisitionStore';
+import { useOutboundStore } from '@/store/outboundStore';
 import { useUserStore } from '@/store/userStore';
 import { materials, departments } from '@/mock/data';
 import { formatCurrency, formatDate, getStatusText } from '@/utils';
-import type { Requisition, Material } from '@/types';
+import type { Requisition, Material, OutboundOrder } from '@/types';
 
 interface RequisitionFormItem {
   materialId: string;
@@ -16,21 +18,31 @@ interface RequisitionFormItem {
 }
 
 export default function RequisitionList() {
+  const navigate = useNavigate();
   const { requisitions, createRequisition, getRequisitionById } = useRequisitionStore();
+  const { getOrderByRequisitionId } = useOutboundStore();
   const { currentUser } = useUserStore();
 
+  const [activeTab, setActiveTab] = useState<'requisition' | 'outbound'>('requisition');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>('');
   const [searchText, setSearchText] = useState<string>('');
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [showDetailModal, setShowDetailModal] = useState<boolean>(false);
+  const [showOutboundModal, setShowOutboundModal] = useState<boolean>(false);
   const [detailRequisition, setDetailRequisition] = useState<Requisition | null>(null);
+  const [detailOutbound, setDetailOutbound] = useState<OutboundOrder | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   const [formItems, setFormItems] = useState<RequisitionFormItem[]>([]);
   const [selectedMaterialId, setSelectedMaterialId] = useState<string>('');
 
   const filteredRequisitions = useMemo(() => {
     return requisitions.filter(r => {
+      if (currentUser.role === 'nurse' || currentUser.role === 'director') {
+        if (r.departmentId !== currentUser.departmentId) return false;
+      }
       if (statusFilter && r.status !== statusFilter) return false;
       if (dateFilter && r.applyDate !== dateFilter) return false;
       if (searchText) {
@@ -42,7 +54,7 @@ export default function RequisitionList() {
       }
       return true;
     });
-  }, [requisitions, statusFilter, dateFilter, searchText]);
+  }, [requisitions, statusFilter, dateFilter, searchText, currentUser]);
 
   const totalAmount = useMemo(() => {
     return formItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
@@ -52,18 +64,18 @@ export default function RequisitionList() {
     return departments.find(d => d.id === currentUser.departmentId);
   }, [currentUser]);
 
-  const budgetUsage = useMemo(() => {
-    if (!currentDepartment) return { used: 0, total: 0, remaining: 0, percentage: 0 };
-    const used = currentDepartment.usedBudget + totalAmount;
+  const budgetInfo = useMemo(() => {
+    if (!currentDepartment) return { budget: 0, used: 0, remaining: 0, percentage: 0 };
+    const used = currentDepartment.usedBudget;
     const remaining = currentDepartment.monthlyBudget - used;
     const percentage = (used / currentDepartment.monthlyBudget) * 100;
     return {
+      budget: currentDepartment.monthlyBudget,
       used,
-      total: currentDepartment.monthlyBudget,
       remaining,
       percentage,
     };
-  }, [currentDepartment, totalAmount]);
+  }, [currentDepartment]);
 
   const handleAddMaterial = () => {
     if (!selectedMaterialId) return;
@@ -109,7 +121,7 @@ export default function RequisitionList() {
   const handleSubmitRequisition = () => {
     if (formItems.length === 0) return;
 
-    createRequisition({
+    const result = createRequisition({
       departmentId: currentUser.departmentId,
       departmentName: currentUser.departmentName || '',
       applicantId: currentUser.id,
@@ -126,8 +138,15 @@ export default function RequisitionList() {
       })),
     });
 
-    setFormItems([]);
-    setShowCreateModal(false);
+    if (result.success) {
+      setSuccessMessage(result.message || '提交成功');
+      setFormItems([]);
+      setShowCreateModal(false);
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } else {
+      setErrorMessage(result.message || '提交失败');
+      setTimeout(() => setErrorMessage(''), 3000);
+    }
   };
 
   const handleViewDetail = (id: string) => {
@@ -135,6 +154,14 @@ export default function RequisitionList() {
     if (req) {
       setDetailRequisition(req);
       setShowDetailModal(true);
+    }
+  };
+
+  const handleViewOutbound = (requisitionId: string) => {
+    const order = getOrderByRequisitionId(requisitionId);
+    if (order) {
+      setDetailOutbound(order);
+      setShowOutboundModal(true);
     }
   };
 
@@ -152,6 +179,15 @@ export default function RequisitionList() {
     }
   };
 
+  const getApprovalTip = () => {
+    if (!currentDepartment) return '';
+    const remaining = budgetInfo.remaining;
+    if (totalAmount > remaining) {
+      return `本次申领金额 ${formatCurrency(totalAmount)} 超过剩余预算 ${formatCurrency(remaining)}，将进入三级审批流程`;
+    }
+    return `本次申领金额 ${formatCurrency(totalAmount)} 未超过剩余预算，将直接通过`;
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -160,6 +196,41 @@ export default function RequisitionList() {
           + 新建申领
         </button>
       </div>
+
+      <div className="flex gap-2 border-b border-slate-200">
+        <button
+          className={`px-6 py-3 font-medium transition-colors ${
+            activeTab === 'requisition'
+              ? 'text-primary-600 border-b-2 border-primary-600'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+          onClick={() => setActiveTab('requisition')}
+        >
+          申领单列表
+        </button>
+        <button
+          className={`px-6 py-3 font-medium transition-colors ${
+            activeTab === 'outbound'
+              ? 'text-primary-600 border-b-2 border-primary-600'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+          onClick={() => navigate('/requisition/outbound')}
+        >
+          出库单记录
+        </button>
+      </div>
+
+      {successMessage && (
+        <div className="dashboard-card p-4 bg-green-50 border-green-200">
+          <p className="text-green-700">{successMessage}</p>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="dashboard-card p-4 bg-red-50 border-red-200">
+          <p className="text-red-700">{errorMessage}</p>
+        </div>
+      )}
 
       <div className="dashboard-card p-4">
         <div className="flex flex-wrap items-center gap-4">
@@ -235,12 +306,22 @@ export default function RequisitionList() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <button
-                      className="text-primary-600 hover:text-primary-700 font-medium text-sm"
-                      onClick={() => handleViewDetail(req.id)}
-                    >
-                      查看详情
-                    </button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        className="text-primary-600 hover:text-primary-700 font-medium text-sm"
+                        onClick={() => handleViewDetail(req.id)}
+                      >
+                        查看详情
+                      </button>
+                      {req.status === 'approved' && (
+                        <button
+                          className="text-slate-600 hover:text-slate-800 font-medium text-sm"
+                          onClick={() => handleViewOutbound(req.id)}
+                        >
+                          查看出库单
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -286,6 +367,54 @@ export default function RequisitionList() {
                   />
                 </div>
               </div>
+
+              {currentDepartment && (
+                <div className="dashboard-card p-4">
+                  <h3 className="section-title mb-3">科室预算使用情况</h3>
+                  <div className="grid grid-cols-4 gap-4 mb-4">
+                    <div>
+                      <p className="text-sm text-slate-500 mb-1">月度预算</p>
+                      <p className="text-lg font-bold text-slate-800">{formatCurrency(budgetInfo.budget)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-500 mb-1">已使用</p>
+                      <p className="text-lg font-bold text-slate-700">{formatCurrency(budgetInfo.used)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-500 mb-1">剩余预算</p>
+                      <p className={`text-lg font-bold ${budgetInfo.remaining >= 0 ? 'text-status-success' : 'text-status-danger'}`}>
+                        {formatCurrency(budgetInfo.remaining)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-500 mb-1">本次申领预计占用</p>
+                      <p className="text-lg font-bold text-primary-600">{formatCurrency(totalAmount)}</p>
+                    </div>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-2.5">
+                    <div
+                      className={`h-2.5 rounded-full transition-all duration-300 ${
+                        budgetInfo.percentage >= 100
+                          ? 'bg-status-danger'
+                          : budgetInfo.percentage >= 80
+                          ? 'bg-status-warning'
+                          : 'bg-status-success'
+                      }`}
+                      style={{ width: `${Math.min(budgetInfo.percentage, 100)}%` }}
+                    ></div>
+                  </div>
+                  <div className="text-right text-xs text-slate-500 mt-1">
+                    使用率：{budgetInfo.percentage.toFixed(1)}%
+                  </div>
+                  {formItems.length > 0 && (
+                    <div className={`mt-3 p-3 rounded-lg text-sm ${
+                      totalAmount > budgetInfo.remaining ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
+                    }`}>
+                      {getApprovalTip()}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">选择耗材</label>
@@ -372,57 +501,6 @@ export default function RequisitionList() {
                       </tr>
                     </tfoot>
                   </table>
-                </div>
-              )}
-
-              {currentDepartment && (
-                <div className="dashboard-card p-4">
-                  <h3 className="section-title mb-3">预算占用情况</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">月度预算</span>
-                      <span className="font-semibold text-slate-800">
-                        {formatCurrency(currentDepartment.monthlyBudget)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">已使用</span>
-                      <span className="font-semibold text-slate-800">
-                        {formatCurrency(currentDepartment.usedBudget)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-600">本次申领</span>
-                      <span className="font-semibold text-primary-600">
-                        {formatCurrency(totalAmount)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm border-t border-slate-200 pt-3">
-                      <span className="text-slate-600">剩余预算</span>
-                      <span
-                        className={`font-bold ${
-                          budgetUsage.remaining >= 0 ? 'text-status-success' : 'text-status-danger'
-                        }`}
-                      >
-                        {formatCurrency(budgetUsage.remaining)}
-                      </span>
-                    </div>
-                    <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2">
-                      <div
-                        className={`h-2.5 rounded-full transition-all duration-300 ${
-                          budgetUsage.percentage >= 100
-                            ? 'bg-status-danger'
-                            : budgetUsage.percentage >= 80
-                            ? 'bg-status-warning'
-                            : 'bg-status-success'
-                        }`}
-                        style={{ width: `${Math.min(budgetUsage.percentage, 100)}%` }}
-                      ></div>
-                    </div>
-                    <div className="text-right text-xs text-slate-500">
-                      使用率：{budgetUsage.percentage.toFixed(1)}%
-                    </div>
-                  </div>
                 </div>
               )}
             </div>
@@ -547,6 +625,108 @@ export default function RequisitionList() {
 
             <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
               <button className="btn-secondary" onClick={() => setShowDetailModal(false)}>
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showOutboundModal && detailOutbound && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-slate-800">出库单详情</h2>
+              <button
+                className="text-slate-400 hover:text-slate-600 text-2xl leading-none"
+                onClick={() => setShowOutboundModal(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-500 mb-1">出库单号</label>
+                  <p className="font-mono text-slate-800">{detailOutbound.id}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-500 mb-1">关联申领单号</label>
+                  <p className="font-mono text-slate-800">{detailOutbound.requisitionId}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-500 mb-1">科室</label>
+                  <p className="text-slate-800">{detailOutbound.departmentName}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-500 mb-1">创建时间</label>
+                  <p className="text-slate-800">{formatDate(detailOutbound.createTime)}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-500 mb-1">状态</label>
+                  <span className={getStatusClass(detailOutbound.status)}>
+                    {detailOutbound.status === 'pending' ? '待出库' : detailOutbound.status === 'completed' ? '已出库' : '已取消'}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-500 mb-1">总金额</label>
+                  <p className="text-lg font-bold text-primary-600">{formatCurrency(detailOutbound.totalAmount)}</p>
+                </div>
+              </div>
+
+              <div className="dashboard-card overflow-hidden">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                  <h3 className="font-semibold text-slate-700">出库明细</h3>
+                </div>
+                <table className="w-full">
+                  <thead>
+                    <tr className="table-header">
+                      <th className="px-4 py-2.5 text-left text-xs">耗材名称</th>
+                      <th className="px-4 py-2.5 text-center text-xs">规格</th>
+                      <th className="px-4 py-2.5 text-center text-xs">单位</th>
+                      <th className="px-4 py-2.5 text-center text-xs">数量</th>
+                      <th className="px-4 py-2.5 text-right text-xs">单价</th>
+                      <th className="px-4 py-2.5 text-right text-xs">小计</th>
+                      <th className="px-4 py-2.5 text-center text-xs">批次号</th>
+                      <th className="px-4 py-2.5 text-center text-xs">库存ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailOutbound.items.map(item => (
+                      <tr key={item.id} className="table-row">
+                        <td className="px-4 py-3 text-sm text-slate-700">{item.materialName}</td>
+                        <td className="px-4 py-3 text-center text-sm text-slate-600">{item.spec}</td>
+                        <td className="px-4 py-3 text-center text-sm text-slate-600">{item.unit}</td>
+                        <td className="px-4 py-3 text-center text-sm text-slate-600">{item.quantity}</td>
+                        <td className="px-4 py-3 text-right text-sm text-slate-600">
+                          {formatCurrency(item.unitPrice)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold text-slate-800">
+                          {formatCurrency(item.subtotal)}
+                        </td>
+                        <td className="px-4 py-3 text-center text-sm text-slate-600 font-mono">{item.batchNo}</td>
+                        <td className="px-4 py-3 text-center text-sm text-slate-600 font-mono">{item.inventoryId}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50 border-t border-slate-200">
+                      <td colSpan={5} className="px-4 py-3 text-right font-semibold text-slate-700">
+                        合计：
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-lg text-primary-600">
+                        {formatCurrency(detailOutbound.totalAmount)}
+                      </td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
+              <button className="btn-secondary" onClick={() => setShowOutboundModal(false)}>
                 关闭
               </button>
             </div>

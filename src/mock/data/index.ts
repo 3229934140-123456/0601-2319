@@ -153,7 +153,7 @@ export const purchaseSuggestions: PurchaseSuggestion[] = [
 export const purchaseOrders: PurchaseOrder[] = [
   {
     id: 'po001', supplierId: 's001', supplierName: '国药控股医疗器械有限公司', creatorId: 'u005', creatorName: '刘采购员',
-    totalAmount: 58200, status: 'pending', approvalStatus: 'pending', currentApprover: 'u004',
+    totalAmount: 58200, status: 'pending', approvalStatus: 'pending', currentApprover: 'u004', approvalLevel: 1,
     items: [
       { id: 'poi001', materialId: 'm002', materialName: '一次性使用输液器', spec: '带针', unit: '套', quantity: 500, unitPrice: 3.2, subtotal: 1600 },
       { id: 'poi002', materialId: 'm006', materialName: '一次性手术刀', spec: '11号', unit: '把', quantity: 300, unitPrice: 18.0, subtotal: 5400 },
@@ -165,7 +165,7 @@ export const purchaseOrders: PurchaseOrder[] = [
   },
   {
     id: 'po002', supplierId: 's004', supplierName: '强生医疗器材有限公司', creatorId: 'u005', creatorName: '刘采购员',
-    totalAmount: 292500, status: 'approved', approvalStatus: 'approved', currentApprover: '',
+    totalAmount: 292500, status: 'approved', approvalStatus: 'approved', currentApprover: '', approvalLevel: 2,
     items: [
       { id: 'poi005', materialId: 'm013', materialName: '人工股骨头', spec: '标准型', unit: '个', quantity: 30, unitPrice: 8500.0, subtotal: 255000 },
       { id: 'poi006', materialId: 'm005', materialName: '无菌手术缝合线', spec: '4-0', unit: '包', quantity: 500, unitPrice: 45.0, subtotal: 22500 },
@@ -175,7 +175,7 @@ export const purchaseOrders: PurchaseOrder[] = [
   },
   {
     id: 'po003', supplierId: 's003', supplierName: '迈瑞医疗国际有限公司', creatorId: 'u005', creatorName: '刘采购员',
-    totalAmount: 15600, status: 'ordered', approvalStatus: 'approved', currentApprover: '',
+    totalAmount: 15600, status: 'ordered', approvalStatus: 'approved', currentApprover: '', approvalLevel: 2,
     items: [
       { id: 'poi008', materialId: 'm010', materialName: '一次性引流袋', spec: '1000ml', unit: '个', quantity: 600, unitPrice: 6.8, subtotal: 4080 },
       { id: 'poi009', materialId: 'm007', materialName: '心电电极片', spec: '通用', unit: '片', quantity: 1000, unitPrice: 2.0, subtotal: 2000 },
@@ -185,7 +185,7 @@ export const purchaseOrders: PurchaseOrder[] = [
   },
   {
     id: 'po004', supplierId: 's002', supplierName: '上海医疗器械股份有限公司', creatorId: 'u005', creatorName: '刘采购员',
-    totalAmount: 8500, status: 'received', approvalStatus: 'approved', currentApprover: '',
+    totalAmount: 8500, status: 'received', approvalStatus: 'approved', currentApprover: '', approvalLevel: 2,
     items: [
       { id: 'poi011', materialId: 'm001', materialName: '一次性使用注射器', spec: '5ml', unit: '支', quantity: 2000, unitPrice: 1.5, subtotal: 3000 },
       { id: 'poi012', materialId: 'm008', materialName: '一次性留置针', spec: '20G', unit: '支', quantity: 200, unitPrice: 12.5, subtotal: 2500 },
@@ -194,7 +194,7 @@ export const purchaseOrders: PurchaseOrder[] = [
   },
   {
     id: 'po005', supplierId: 's001', supplierName: '国药控股医疗器械有限公司', creatorId: 'u005', creatorName: '刘采购员',
-    totalAmount: 12800, status: 'completed', approvalStatus: 'approved', currentApprover: '',
+    totalAmount: 12800, status: 'completed', approvalStatus: 'approved', currentApprover: '', approvalLevel: 2,
     items: [
       { id: 'poi013', materialId: 'm004', materialName: '一次性医用手套', spec: 'M号', unit: '副', quantity: 2000, unitPrice: 2.5, subtotal: 5000 },
       { id: 'poi014', materialId: 'm012', materialName: '一次性吸痰管', spec: '12号', unit: '支', quantity: 1000, unitPrice: 4.5, subtotal: 4500 },

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { PurchaseSuggestion, PurchaseOrder, PurchaseOrderItem } from '@/types';
 import { purchaseSuggestions as mockSuggestions, purchaseOrders as mockOrders } from '@/mock/data';
 import { generateId } from '@/utils';
@@ -10,91 +11,178 @@ interface PurchaseState {
   getPendingSuggestions: () => PurchaseSuggestion[];
   getOrders: () => PurchaseOrder[];
   getPendingApprovals: (role: string) => PurchaseOrder[];
+  addSuggestion: (data: Omit<PurchaseSuggestion, 'id' | 'status' | 'createTime'>) => PurchaseSuggestion | null;
   processSuggestion: (id: string) => void;
   ignoreSuggestion: (id: string) => void;
-  createOrder: (data: Omit<PurchaseOrder, 'id' | 'status' | 'approvalStatus' | 'currentApprover' | 'createTime' | 'items' | 'totalAmount' | 'deadline'> & { items: Omit<PurchaseOrderItem, 'id' | 'subtotal'>[] }) => void;
-  approveOrder: (id: string) => void;
-  rejectOrder: (id: string) => void;
+  createOrder: (data: Omit<PurchaseOrder, 'id' | 'status' | 'approvalStatus' | 'currentApprover' | 'approvalLevel' | 'createTime' | 'items' | 'totalAmount' | 'deadline'> & { items: Omit<PurchaseOrderItem, 'id' | 'subtotal'>[] }) => PurchaseOrder;
+  approveOrder: (id: string, approverId?: string, approverName?: string) => void;
+  rejectOrder: (id: string, approverId?: string, approverName?: string) => void;
   updateOrderStatus: (id: string, status: PurchaseOrder['status']) => void;
+  getSuggestionByMaterialId: (materialId: string) => PurchaseSuggestion | undefined;
+  escalatePurchaseTimeout: (id: string) => boolean;
 }
 
-export const usePurchaseStore = create<PurchaseState>((set, get) => ({
-  suggestions: mockSuggestions,
-  orders: mockOrders,
+export const usePurchaseStore = create<PurchaseState>()(
+  persist(
+    (set, get) => ({
+      suggestions: mockSuggestions,
+      orders: mockOrders,
 
-  getSuggestions: () => get().suggestions,
+      getSuggestions: () => get().suggestions,
 
-  getPendingSuggestions: () => get().suggestions.filter(s => s.status === 'pending'),
+      getPendingSuggestions: () => get().suggestions.filter(s => s.status === 'pending'),
 
-  getOrders: () => get().orders,
+      getOrders: () => get().orders,
 
-  getPendingApprovals: (role) => {
-    const pending = get().orders.filter(o => o.approvalStatus === 'pending');
-    if (role === 'equipment') return pending;
-    if (role === 'admin') return pending;
-    return [];
-  },
+      getPendingApprovals: (role) => {
+        const pending = get().orders.filter(o => o.approvalStatus === 'pending');
+        if (role === 'equipment') return pending.filter(o => o.approvalLevel === 1);
+        if (role === 'admin') return pending.filter(o => o.approvalLevel === 2);
+        return [];
+      },
 
-  processSuggestion: (id) => {
-    set(state => ({
-      suggestions: state.suggestions.map(s =>
-        s.id === id ? { ...s, status: 'processed' } : s
-      ),
-    }));
-  },
+      getSuggestionByMaterialId: (materialId) =>
+        get().suggestions.find(
+          s => s.materialId === materialId && s.status === 'pending'
+        ),
 
-  ignoreSuggestion: (id) => {
-    set(state => ({
-      suggestions: state.suggestions.map(s =>
-        s.id === id ? { ...s, status: 'ignored' } : s
-      ),
-    }));
-  },
+      addSuggestion: (data) => {
+        const existing = get().getSuggestionByMaterialId(data.materialId);
+        if (existing) return null;
 
-  createOrder: (data) => {
-    const items = data.items.map(item => ({
-      ...item,
-      id: generateId(),
-      subtotal: item.quantity * item.unitPrice,
-    }));
-    const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
+        const suggestion: PurchaseSuggestion = {
+          id: generateId(),
+          ...data,
+          status: 'pending',
+          createTime: new Date().toISOString(),
+        };
+        set(state => ({ suggestions: [suggestion, ...state.suggestions] }));
+        return suggestion;
+      },
 
-    const newOrder: PurchaseOrder = {
-      id: generateId(),
-      ...data,
-      items,
-      totalAmount,
-      status: 'pending',
-      approvalStatus: 'pending',
-      currentApprover: '',
-      createTime: new Date().toISOString(),
-      deadline: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    };
+      processSuggestion: (id) => {
+        set(state => ({
+          suggestions: state.suggestions.map(s =>
+            s.id === id ? { ...s, status: 'processed' } : s
+          ),
+        }));
+      },
 
-    set(state => ({ orders: [newOrder, ...state.orders] }));
-  },
+      ignoreSuggestion: (id) => {
+        set(state => ({
+          suggestions: state.suggestions.map(s =>
+            s.id === id ? { ...s, status: 'ignored' } : s
+          ),
+        }));
+      },
 
-  approveOrder: (id) => {
-    set(state => ({
-      orders: state.orders.map(o =>
-        o.id === id ? { ...o, approvalStatus: 'approved', status: 'approved', currentApprover: '' } : o
-      ),
-    }));
-  },
+      createOrder: (data) => {
+        const items = data.items.map(item => ({
+          ...item,
+          id: generateId(),
+          subtotal: item.quantity * item.unitPrice,
+        }));
+        const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
 
-  rejectOrder: (id) => {
-    set(state => ({
-      orders: state.orders.map(o =>
-        o.id === id ? { ...o, approvalStatus: 'rejected', currentApprover: '' } : o
-      ),
-    }));
-  },
+        const newOrder: PurchaseOrder = {
+          id: generateId(),
+          ...data,
+          items,
+          totalAmount,
+          status: 'pending',
+          approvalStatus: 'pending',
+          currentApprover: '',
+          approvalLevel: 1,
+          createTime: new Date().toISOString(),
+          deadline: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        };
 
-  updateOrderStatus: (id, status) => {
-    set(state => ({
-      orders: state.orders.map(o =>
-        o.id === id ? { ...o, status } : o
-      ),
-    }));
-  },
-}));
+        set(state => ({ orders: [newOrder, ...state.orders] }));
+        return newOrder;
+      },
+
+      approveOrder: (id, approverId, approverName) => {
+        const order = get().orders.find(o => o.id === id);
+        if (!order) return;
+
+        const nextLevel = order.approvalLevel + 1;
+
+        if (nextLevel > 2) {
+          set(state => ({
+            orders: state.orders.map(o =>
+              o.id === id ? {
+                ...o,
+                approvalStatus: 'approved',
+                status: 'approved',
+                currentApprover: '',
+                approvalLevel: 2,
+              } : o
+            ),
+          }));
+        } else {
+          set(state => ({
+            orders: state.orders.map(o =>
+              o.id === id ? {
+                ...o,
+                approvalLevel: nextLevel,
+                deadline: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+              } : o
+            ),
+          }));
+        }
+      },
+
+      rejectOrder: (id, approverId, approverName) => {
+        set(state => ({
+          orders: state.orders.map(o =>
+            o.id === id ? { ...o, approvalStatus: 'rejected', currentApprover: '' } : o
+          ),
+        }));
+      },
+
+      escalatePurchaseTimeout: (id) => {
+        const order = get().orders.find(o => o.id === id);
+        if (!order || order.approvalStatus !== 'pending') return false;
+
+        const nextLevel = order.approvalLevel + 1;
+
+        if (nextLevel > 2) {
+          set(state => ({
+            orders: state.orders.map(o =>
+              o.id === id ? {
+                ...o,
+                approvalStatus: 'approved',
+                status: 'approved',
+                currentApprover: '',
+                approvalLevel: 2,
+              } : o
+            ),
+          }));
+          return true;
+        }
+
+        set(state => ({
+          orders: state.orders.map(o =>
+            o.id === id ? {
+              ...o,
+              approvalLevel: nextLevel,
+              deadline: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+            } : o
+          ),
+        }));
+        return true;
+      },
+
+      updateOrderStatus: (id, status) => {
+        set(state => ({
+          orders: state.orders.map(o =>
+            o.id === id ? { ...o, status } : o
+          ),
+        }));
+      },
+    }),
+    {
+      name: 'purchase-storage',
+    }
+  )
+);

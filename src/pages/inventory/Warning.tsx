@@ -6,6 +6,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { useInventoryStore } from '@/store/inventoryStore';
+import { usePurchaseStore } from '@/store/purchaseStore';
 import { materials } from '@/mock/data';
 import { formatCurrency } from '@/utils';
 import type { Inventory } from '@/types';
@@ -17,8 +18,9 @@ interface WarningItem extends Inventory {
 }
 
 export default function InventoryWarning() {
-  const { inventories } = useInventoryStore();
-  const [showTip, setShowTip] = useState(false);
+  const { inventories, generatePurchaseSuggestions } = useInventoryStore();
+  const [tipMessage, setTipMessage] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const warningItems = useMemo<WarningItem[]>(() => {
     return inventories
@@ -56,25 +58,36 @@ export default function InventoryWarning() {
     return 'normal';
   };
 
-  const handleGenerateSuggestion = () => {
-    setShowTip(true);
-    setTimeout(() => setShowTip(false), 3000);
+  const handleGenerateSuggestion = async () => {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    try {
+      const result = generatePurchaseSuggestions();
+      setTipMessage(`共生成 ${result.count} 条采购建议，其中新增 ${result.newCount} 条`);
+      setTimeout(() => setTipMessage(null), 3000);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="page-title">库存预警</h1>
-        <button onClick={handleGenerateSuggestion} className="btn-primary flex items-center gap-2">
+        <button
+          onClick={handleGenerateSuggestion}
+          disabled={isGenerating}
+          className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           <ShoppingCart className="w-4 h-4" />
-          一键生成采购建议
+          {isGenerating ? '生成中...' : '一键生成采购建议'}
         </button>
       </div>
 
-      {showTip && (
+      {tipMessage && (
         <div className="fixed top-6 right-6 bg-status-success text-white px-6 py-3 rounded-lg shadow-glow-green z-50 animate-fade-in flex items-center gap-2">
           <FileText className="w-5 h-5" />
-          采购建议已生成，可前往采购建议页面查看
+          {tipMessage}
         </div>
       )}
 

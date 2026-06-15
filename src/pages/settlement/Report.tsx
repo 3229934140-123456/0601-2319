@@ -50,10 +50,15 @@ export default function Report() {
   const totalAmount = reportData.reduce((sum, item) => sum + item.amount, 0);
 
   const handleExport = () => {
+    const deptName = selectedDepartment ? departments.find(d => d.id === selectedDepartment)?.name : '全部科室';
+    
     const exportData = reportData.map(item => ({
+      月份: selectedMonth,
+      科室: deptName,
       耗材类别: item.category,
       耗材名称: item.name,
-      消耗数量: `${item.quantity}${item.unit}`,
+      消耗数量: item.quantity,
+      单位: item.unit,
       单价: formatCurrency(item.price),
       总金额: formatCurrency(item.amount),
       占比: `${item.ratio.toFixed(2)}%`,
@@ -61,17 +66,19 @@ export default function Report() {
 
     if (exportData.length > 0) {
       exportData.push({
+        月份: selectedMonth,
+        科室: deptName,
         耗材类别: '合计',
         耗材名称: '',
-        消耗数量: `${totalQuantity}`,
+        消耗数量: totalQuantity,
+        单位: '',
         单价: '',
         总金额: formatCurrency(totalAmount),
-        占比: '100%',
+        占比: '100.00%',
       });
     }
 
-    const deptName = selectedDepartment ? departments.find(d => d.id === selectedDepartment)?.name : '全部科室';
-    exportToCSV(exportData, `${selectedMonth}_${deptName}_耗材消耗分析报表`);
+    exportToCSV(exportData, `月度耗材消耗分析报表_${selectedMonth}`);
   };
 
   return (

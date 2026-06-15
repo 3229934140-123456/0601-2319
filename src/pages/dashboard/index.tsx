@@ -11,12 +11,22 @@ import {
   Package,
   Calendar,
   ChevronDown,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
-import { dashboardStats, departments } from '@/mock/data';
-import { formatCurrency, formatNumber, cn } from '@/utils';
-import type { DashboardStats } from '@/types';
+import { useDashboardStore } from '@/store/dashboardStore';
+import { departments, consumptions, purchaseOrders, materials } from '@/mock/data';
+import { formatCurrency, formatNumber, cn, exportToCSV } from '@/utils';
+import type { DashboardFilter } from '@/types';
 
-const materialCategories = ['全部', '注射类', '防护类', '手术类', '检查类', '敷料类', '护理类', '导管类', '植入类', '麻醉类'];
+const dateRangeLabels: Record<DashboardFilter['dateRange'], string> = {
+  '7d': '最近7天',
+  '15d': '最近15天',
+  '30d': '最近30天',
+  'month': '本月',
+};
+
+const materialCategories = ['全部', ...Array.from(new Set(materials.map(m => m.category)))];
 
 const useCountUp = (target: number, duration: number = 1000) => {
   const [value, setValue] = useState(0);
@@ -103,14 +113,16 @@ const StatCard = ({
   );
 };
 
-const FilterToolbar = ({
-  filters,
-  onChange,
-}: {
-  filters: { department: string; category: string; dateRange: string };
-  onChange: (filters: { department: string; category: string; dateRange: string }) => void;
-}) => {
+const FilterToolbar = () => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const { filter, setFilter } = useDashboardStore();
+
+  const selectedDeptName = filter.departmentId === 'all' 
+    ? '全部科室' 
+    : departments.find(d => d.id === filter.departmentId)?.name || '全部科室';
+  
+  const selectedCategory = filter.category === 'all' ? '全部' : filter.category;
+  const selectedDateRange = dateRangeLabels[filter.dateRange];
 
   return (
     <div className="flex items-center gap-4 flex-wrap">
@@ -125,24 +137,29 @@ const FilterToolbar = ({
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-900/50 border border-primary-700/50 text-white text-sm hover:border-primary-500/70 hover:bg-primary-800/50 transition-all"
         >
           <Building2 size={16} className="text-primary-400" />
-          <span>{filters.department || '全部科室'}</span>
+          <span>{selectedDeptName}</span>
           <ChevronDown size={14} className="text-primary-400" />
         </button>
         {openDropdown === 'dept' && (
           <div className="absolute top-full left-0 mt-2 w-48 rounded-xl bg-primary-950/95 border border-primary-700/50 backdrop-blur-xl shadow-xl z-50 py-2 max-h-64 overflow-y-auto">
             <button
-              onClick={() => { onChange({ ...filters, department: '' }); setOpenDropdown(null); }}
-              className="w-full px-4 py-2 text-left text-sm text-white hover:bg-primary-800/60 transition-colors"
+              onClick={() => { setFilter({ departmentId: 'all' }); setOpenDropdown(null); }}
+              className={cn(
+                'w-full px-4 py-2 text-left text-sm transition-colors',
+                filter.departmentId === 'all'
+                  ? 'bg-primary-600/40 text-white'
+                  : 'text-primary-200 hover:bg-primary-800/60 text-white'
+              )}
             >
               全部科室
             </button>
             {departments.map((d) => (
               <button
                 key={d.id}
-                onClick={() => { onChange({ ...filters, department: d.name }); setOpenDropdown(null); }}
+                onClick={() => { setFilter({ departmentId: d.id }); setOpenDropdown(null); }}
                 className={cn(
                   'w-full px-4 py-2 text-left text-sm transition-colors',
-                  filters.department === d.name
+                  filter.departmentId === d.id
                     ? 'bg-primary-600/40 text-white'
                     : 'text-primary-200 hover:bg-primary-800/60 text-white'
                 )}
@@ -160,7 +177,7 @@ const FilterToolbar = ({
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-900/50 border border-primary-700/50 text-white text-sm hover:border-primary-500/70 hover:bg-primary-800/50 transition-all"
         >
           <Package size={16} className="text-primary-400" />
-          <span>{filters.category}</span>
+          <span>{selectedCategory}</span>
           <ChevronDown size={14} className="text-primary-400" />
         </button>
         {openDropdown === 'cat' && (
@@ -168,10 +185,13 @@ const FilterToolbar = ({
             {materialCategories.map((c) => (
               <button
                 key={c}
-                onClick={() => { onChange({ ...filters, category: c }); setOpenDropdown(null); }}
+                onClick={() => { 
+                  setFilter({ category: c === '全部' ? 'all' : c }); 
+                  setOpenDropdown(null); 
+                }}
                 className={cn(
                   'w-full px-4 py-2 text-left text-sm transition-colors',
-                  filters.category === c
+                  (c === '全部' && filter.category === 'all') || filter.category === c
                     ? 'bg-primary-600/40 text-white'
                     : 'text-primary-200 hover:bg-primary-800/60 text-white'
                 )}
@@ -189,23 +209,23 @@ const FilterToolbar = ({
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-900/50 border border-primary-700/50 text-white text-sm hover:border-primary-500/70 hover:bg-primary-800/50 transition-all"
         >
           <Calendar size={16} className="text-primary-400" />
-          <span>{filters.dateRange}</span>
+          <span>{selectedDateRange}</span>
           <ChevronDown size={14} className="text-primary-400" />
         </button>
         {openDropdown === 'date' && (
           <div className="absolute top-full left-0 mt-2 w-40 rounded-xl bg-primary-950/95 border border-primary-700/50 backdrop-blur-xl shadow-xl z-50 py-2">
-            {['最近7天', '最近15天', '最近30天', '本月'].map((d) => (
+            {(['7d', '15d', '30d', 'month'] as const).map((d) => (
               <button
                 key={d}
-                onClick={() => { onChange({ ...filters, dateRange: d }); setOpenDropdown(null); }}
+                onClick={() => { setFilter({ dateRange: d }); setOpenDropdown(null); }}
                 className={cn(
                   'w-full px-4 py-2 text-left text-sm transition-colors',
-                  filters.dateRange === d
+                  filter.dateRange === d
                     ? 'bg-primary-600/40 text-white'
                     : 'text-primary-200 hover:bg-primary-800/60 text-white'
                 )}
               >
-                {d}
+                {dateRangeLabels[d]}
               </button>
             ))}
           </div>
@@ -215,44 +235,133 @@ const FilterToolbar = ({
   );
 };
 
+const ExportButtonGroup = () => {
+  const [openExport, setOpenExport] = useState(false);
+
+  const handleExportConsumptions = () => {
+    const { filter } = useDashboardStore.getState();
+    const getDateRangeDays = (range: DashboardFilter['dateRange']): number => {
+      switch (range) {
+        case '7d': return 7;
+        case '15d': return 15;
+        case '30d': return 30;
+        case 'month': return 30;
+        default: return 30;
+      }
+    };
+    
+    const days = getDateRangeDays(filter.dateRange);
+    const today = new Date();
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - days);
+    const startStr = startDate.toISOString().slice(0, 10);
+
+    let filtered = consumptions.filter(c => c.consumeDate >= startStr);
+    if (filter.departmentId !== 'all') {
+      filtered = filtered.filter(c => c.departmentId === filter.departmentId);
+    }
+    if (filter.category !== 'all') {
+      filtered = filtered.filter(c => c.category === filter.category);
+    }
+
+    const exportData = filtered.map(c => ({
+      '消耗日期': c.consumeDate,
+      '科室': c.departmentName,
+      '耗材名称': c.materialName,
+      '类别': c.category,
+      '规格': c.unit,
+      '数量': c.quantity,
+      '金额(元)': c.amount.toFixed(2),
+    }));
+
+    exportToCSV(exportData, `月度消耗分析_${new Date().toISOString().slice(0, 10)}`);
+    setOpenExport(false);
+  };
+
+  const handleExportPurchaseOrders = () => {
+    const { filter } = useDashboardStore.getState();
+    
+    let filtered = purchaseOrders;
+    if (filter.departmentId !== 'all') {
+      const deptName = departments.find(d => d.id === filter.departmentId)?.name;
+      if (deptName) {
+        filtered = filtered.filter(po => 
+          po.items.some(item => {
+            const material = materials.find(m => m.id === item.materialId);
+            return material && filter.category !== 'all' ? material.category === filter.category : true;
+          })
+        );
+      }
+    }
+
+    const exportData = filtered.map(po => ({
+      '订单编号': po.id,
+      '供应商': po.supplierName,
+      '创建人': po.creatorName,
+      '创建时间': po.createTime,
+      '状态': po.status,
+      '总金额(元)': po.totalAmount.toFixed(2),
+      '耗材明细': po.items.map(i => `${i.materialName}x${i.quantity}`).join('; '),
+    }));
+
+    exportToCSV(exportData, `采购明细_${new Date().toISOString().slice(0, 10)}`);
+    setOpenExport(false);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpenExport(!openExport)}
+        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-primary-600 to-primary-500 border border-primary-400/50 text-white text-sm font-medium hover:from-primary-500 hover:to-primary-400 transition-all shadow-lg shadow-primary-500/20"
+      >
+        <Download size={16} />
+        <span>导出数据</span>
+        <ChevronDown size={14} />
+      </button>
+      {openExport && (
+        <div className="absolute top-full right-0 mt-2 w-52 rounded-xl bg-primary-950/95 border border-primary-700/50 backdrop-blur-xl shadow-xl z-50 py-2">
+          <button
+            onClick={handleExportConsumptions}
+            className="w-full px-4 py-3 text-left text-sm text-white hover:bg-primary-800/60 transition-colors flex items-center gap-3"
+          >
+            <FileSpreadsheet size={16} className="text-primary-400" />
+            <div>
+              <div className="font-medium">导出月度消耗分析</div>
+              <div className="text-xs text-primary-400/70">CSV 格式</div>
+            </div>
+          </button>
+          <button
+            onClick={handleExportPurchaseOrders}
+            className="w-full px-4 py-3 text-left text-sm text-white hover:bg-primary-800/60 transition-colors flex items-center gap-3"
+          >
+            <FileSpreadsheet size={16} className="text-primary-400" />
+            <div>
+              <div className="font-medium">导出采购明细</div>
+              <div className="text-xs text-primary-400/70">CSV 格式</div>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats>(dashboardStats);
+  const { stats, refreshStats } = useDashboardStore();
   const [lastRefresh, setLastRefresh] = useState(new Date());
-  const [filters, setFilters] = useState({
-    department: '',
-    category: '全部',
-    dateRange: '最近7天',
-  });
+
+  useEffect(() => {
+    refreshStats();
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      const randomize = (val: number, range: number = 0.05) =>
-        val * (1 + (Math.random() - 0.5) * range * 2);
-
-      setStats({
-        ...dashboardStats,
-        totalInventoryValue: randomize(dashboardStats.totalInventoryValue),
-        monthlyConsumption: randomize(dashboardStats.monthlyConsumption),
-        monthlyPurchase: randomize(dashboardStats.monthlyPurchase),
-        nearExpiryCount: Math.max(0, Math.round(randomize(dashboardStats.nearExpiryCount, 0.1))),
-        consumptionTrend: dashboardStats.consumptionTrend.map((t) => ({
-          ...t,
-          amount: randomize(t.amount, 0.15),
-        })),
-        turnoverRate: dashboardStats.turnoverRate.map((t) => ({
-          ...t,
-          rate: randomize(t.rate, 0.1),
-        })),
-        departmentConsumption: dashboardStats.departmentConsumption.map((d) => ({
-          ...d,
-          amount: randomize(d.amount, 0.1),
-        })),
-      });
+      refreshStats();
       setLastRefresh(new Date());
     }, 5000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshStats]);
 
   const lineColors = ['#1E6FD9', '#34C759', '#FF9500', '#5AC8FA', '#FF3B30', '#BF5AF2'];
 
@@ -499,7 +608,10 @@ export default function DashboardPage() {
               </span>
             </p>
           </div>
-          <FilterToolbar filters={filters} onChange={setFilters} />
+          <div className="flex items-center gap-4">
+            <FilterToolbar />
+            <ExportButtonGroup />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -544,7 +656,7 @@ export default function DashboardPage() {
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-white font-semibold text-base">科室消耗趋势</h3>
-              <span className="text-xs text-primary-400/80">最近7天</span>
+              <span className="text-xs text-primary-400/80">{dateRangeLabels[useDashboardStore.getState().filter.dateRange]}</span>
             </div>
             <div style={{ height: '320px' }}>
               <ReactECharts option={trendOption} style={{ height: '100%', width: '100%' }} />

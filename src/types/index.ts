@@ -118,6 +118,7 @@ export interface PurchaseOrder {
   status: PurchaseOrderStatus;
   approvalStatus: 'pending' | 'approved' | 'rejected';
   currentApprover: string;
+  approvalLevel: number;
   items: PurchaseOrderItem[];
   createTime: string;
   deadline?: string;
@@ -178,4 +179,52 @@ export interface ApprovalRecord {
   result: 'approved' | 'rejected' | 'timeout';
   opinion?: string;
   approveTime: string;
+}
+
+export interface OutboundOrder {
+  id: string;
+  requisitionId: string;
+  departmentId: string;
+  departmentName: string;
+  items: OutboundItem[];
+  totalAmount: number;
+  status: 'pending' | 'completed' | 'cancelled';
+  createTime: string;
+  operatorId?: string;
+  operatorName?: string;
+}
+
+export interface OutboundItem {
+  id: string;
+  materialId: string;
+  materialName: string;
+  spec: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  inventoryId: string;
+  batchNo: string;
+}
+
+export interface ScrapOrder {
+  id: string;
+  inventoryId: string;
+  materialId: string;
+  materialName: string;
+  batchNo: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalValue: number;
+  reason: string;
+  status: 'pending' | 'processed' | 'cancelled';
+  createTime: string;
+  processTime?: string;
+}
+
+export interface DashboardFilter {
+  departmentId: string | 'all';
+  category: string | 'all';
+  dateRange: '7d' | '15d' | '30d' | 'month';
 }

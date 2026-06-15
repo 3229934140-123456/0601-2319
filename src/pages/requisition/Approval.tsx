@@ -81,9 +81,9 @@ export default function ApprovalCenter() {
     const { requisition, type, opinion } = approvalModal;
 
     if (type === 'approve') {
-      approveRequisition(requisition.id, currentUser.id, requisition.approvalLevel, opinion);
+      approveRequisition(requisition.id, currentUser.id, currentUser.name, requisition.approvalLevel, opinion);
     } else {
-      rejectRequisition(requisition.id, currentUser.id, opinion);
+      rejectRequisition(requisition.id, currentUser.id, currentUser.name, opinion);
     }
 
     setApprovalModal({ requisition: null, type: null, opinion: '' });

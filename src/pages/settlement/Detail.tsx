@@ -34,19 +34,20 @@ export default function Detail() {
   }, [startDate, endDate, selectedSupplier, selectedStatus]);
 
   const handleExport = () => {
+    const today = new Date().toISOString().split('T')[0];
     const exportData = allItems.map(item => ({
       订单号: item.orderId,
       供应商: item.supplierName,
       耗材名称: item.materialName,
       规格: item.spec,
-      数量: item.quantity,
       单位: item.unit,
+      数量: item.quantity,
       单价: formatCurrency(item.unitPrice),
       小计: formatCurrency(item.subtotal),
       下单时间: formatDateTime(item.createTime),
       状态: getStatusText(item.status),
     }));
-    exportToCSV(exportData, `采购明细_${startDate}_${endDate}`);
+    exportToCSV(exportData, `采购明细_${today}`);
   };
 
   const statusOptions: { value: PurchaseOrderStatus; label: string }[] = [

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   ClipboardCheck,
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
   Package,
   User,
   Calendar,
+  Shield,
 } from 'lucide-react';
 import { usePurchaseStore } from '@/store/purchaseStore';
 import { useCountdown } from '@/hooks/useCountdown';
@@ -16,7 +17,7 @@ import { formatCurrency, formatDateTime, getStatusText, cn } from '@/utils';
 import { currentUser } from '@/mock/data';
 import type { PurchaseOrder } from '@/types';
 
-function CountdownDisplay({ deadline, isUrgent }: { deadline: string; isUrgent: boolean }) {
+function CountdownDisplay({ deadline, isUrgent, onExpire }: { deadline: string; isUrgent: boolean; onExpire?: () => void }) {
   const { hours, minutes, seconds, expired } = useCountdown(deadline);
   const isUrgentNow = hours < 12;
   const displayUrgent = isUrgent || isUrgentNow;
@@ -44,15 +45,35 @@ function CountdownDisplay({ deadline, isUrgent }: { deadline: string; isUrgent: 
   );
 }
 
+function ApprovalLevelBadge({ level }: { level: number }) {
+  const levelText = level === 1 ? '设备科审批' : '院长审批';
+  const levelClass = level === 1 ? 'bg-primary-100 text-primary-700' : 'bg-orange-100 text-orange-700';
+
+  return (
+    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium', levelClass)}>
+      <Shield className="w-3 h-3" />
+      {levelText}
+    </span>
+  );
+}
+
 export default function Approval() {
-  const { approveOrder, rejectOrder, getPendingApprovals } = usePurchaseStore();
+  const { approveOrder, rejectOrder, getPendingApprovals, orders } = usePurchaseStore();
   const [searchText, setSearchText] = useState('');
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionMode, setActionMode] = useState<'approve' | 'reject'>('approve');
   const [currentOrder, setCurrentOrder] = useState<PurchaseOrder | null>(null);
   const [opinion, setOpinion] = useState('');
+  const [now, setNow] = useState(new Date());
 
-  const pendingOrders = getPendingApprovals(currentUser.role);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const pendingOrders = useMemo(() => getPendingApprovals(currentUser.role), [orders, currentUser.role]);
 
   const filteredOrders = pendingOrders.filter(
     (o) =>
@@ -63,8 +84,13 @@ export default function Approval() {
 
   const isUrgentOrder = (order: PurchaseOrder) => {
     if (!order.deadline) return false;
-    const diff = new Date(order.deadline).getTime() - Date.now();
+    const diff = new Date(order.deadline).getTime() - now.getTime();
     return diff < 12 * 60 * 60 * 1000;
+  };
+
+  const isTimeoutOrder = (order: PurchaseOrder) => {
+    if (!order.deadline) return false;
+    return new Date(order.deadline).getTime() <= now.getTime();
   };
 
   const handleOpenModal = (order: PurchaseOrder, mode: 'approve' | 'reject') => {
@@ -78,9 +104,9 @@ export default function Approval() {
     if (!currentOrder) return;
 
     if (actionMode === 'approve') {
-      approveOrder(currentOrder.id);
+      approveOrder(currentOrder.id, currentUser.id, currentUser.name);
     } else {
-      rejectOrder(currentOrder.id);
+      rejectOrder(currentOrder.id, currentUser.id, currentUser.name);
     }
 
     setShowActionModal(false);
@@ -89,9 +115,19 @@ export default function Approval() {
   };
 
   const urgentCount = filteredOrders.filter((o) => isUrgentOrder(o)).length;
-  const timeoutCount = filteredOrders.filter(
-    (o) => o.deadline && new Date(o.deadline).getTime() <= Date.now()
-  ).length;
+  const timeoutCount = filteredOrders.filter((o) => isTimeoutOrder(o)).length;
+
+  const getApprovalStatusClass = (order: PurchaseOrder) => {
+    if (isTimeoutOrder(order)) return 'status-rejected';
+    if (order.approvalStatus === 'approved') return 'status-approved';
+    if (order.approvalStatus === 'rejected') return 'status-rejected';
+    return 'status-pending';
+  };
+
+  const getApprovalStatusText = (order: PurchaseOrder) => {
+    if (isTimeoutOrder(order)) return '已超时';
+    return getStatusText(order.approvalStatus);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -154,6 +190,7 @@ export default function Approval() {
                 <th className="px-4 py-3.5 text-left">创建人</th>
                 <th className="px-4 py-3.5 text-right">总金额</th>
                 <th className="px-4 py-3.5 text-left">创建时间</th>
+                <th className="px-4 py-3.5 text-left">审批级别</th>
                 <th className="px-4 py-3.5 text-left">审批状态</th>
                 <th className="px-4 py-3.5 text-left">剩余时间</th>
                 <th className="px-4 py-3.5 text-center">操作</th>
@@ -162,8 +199,9 @@ export default function Approval() {
             <tbody>
               {filteredOrders.map((order) => {
                 const urgent = isUrgentOrder(order);
+                const timeout = isTimeoutOrder(order);
                 return (
-                  <tr key={order.id} className={cn('table-row', urgent && 'bg-status-warning/5')}>
+                  <tr key={order.id} className={cn('table-row', urgent && !timeout && 'bg-status-warning/5')}>
                     <td className="px-4 py-3.5">
                       <span className="text-sm font-mono font-medium text-slate-800">
                         {order.id.toUpperCase()}
@@ -193,7 +231,12 @@ export default function Approval() {
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className="status-pending">{getStatusText(order.approvalStatus)}</span>
+                      <ApprovalLevelBadge level={order.approvalLevel} />
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span className={getApprovalStatusClass(order)}>
+                        {getApprovalStatusText(order)}
+                      </span>
                     </td>
                     <td className="px-4 py-3.5">
                       {order.deadline ? (
@@ -225,7 +268,7 @@ export default function Approval() {
               })}
               {filteredOrders.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
                     暂无待审批订单
                   </td>
                 </tr>
@@ -272,6 +315,10 @@ export default function Approval() {
                   <span className="font-mono font-semibold text-primary-600">
                     {formatCurrency(currentOrder.totalAmount)}
                   </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">当前审批级别：</span>
+                  <ApprovalLevelBadge level={currentOrder.approvalLevel} />
                 </div>
               </div>
               <div>

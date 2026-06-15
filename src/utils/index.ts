@@ -63,7 +63,7 @@ export const getDaysDiff = (dateStr: string): number => {
 export const getStatusText = (status: string): string => {
   const statusMap: Record<string, string> = {
     draft: '草稿',
-    pending: '审批中',
+    pending: '待审批',
     approved: '已通过',
     rejected: '已驳回',
     completed: '已完成',
@@ -76,6 +76,7 @@ export const getStatusText = (status: string): string => {
     locked: '已锁定',
     processed: '已处理',
     ignored: '已忽略',
+    timeout: '已超时',
   };
   return statusMap[status] || status;
 };

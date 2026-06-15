@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Clock,
   AlertCircle,
@@ -6,6 +7,7 @@ import {
   Lock,
   ArrowUpCircle,
   AlertTriangle,
+  FileText,
 } from 'lucide-react';
 import { useInventoryStore } from '@/store/inventoryStore';
 import { formatCurrency, formatDate, getStatusText, getDaysDiff } from '@/utils';
@@ -22,11 +24,14 @@ const statusColorMap: Record<string, string> = {
 };
 
 export default function InventoryExpiry() {
+  const navigate = useNavigate();
   const { inventories, lockExpiredInventory } = useInventoryStore();
   const [activeTab, setActiveTab] = useState<TabType>('near');
+  const [tipMessage, setTipMessage] = useState<string | null>(null);
+  const [isLocking, setIsLocking] = useState(false);
 
   const tabs: { key: TabType; label: string; icon: typeof Clock }[] = [
-    { key: 'near', label: '近效期(90天内)', icon: Clock },
+    { key: 'near', label: '近效期', icon: Clock },
     { key: 'expired', label: '已过期', icon: AlertCircle },
     { key: 'all', label: '全部', icon: CheckCircle },
   ];
@@ -42,12 +47,10 @@ export default function InventoryExpiry() {
     let list: (Inventory & { daysToExpiry: number })[] = [];
     switch (activeTab) {
       case 'near':
-        list = processedInventories.filter(
-          (inv) => inv.daysToExpiry > 0 && inv.daysToExpiry <= 90
-        );
+        list = processedInventories.filter((inv) => inv.status === 'near_expiry');
         break;
       case 'expired':
-        list = processedInventories.filter((inv) => inv.daysToExpiry <= 0);
+        list = processedInventories.filter((inv) => inv.status === 'expired');
         break;
       case 'all':
         list = processedInventories;
@@ -57,10 +60,8 @@ export default function InventoryExpiry() {
   }, [processedInventories, activeTab]);
 
   const tabCounts = useMemo(() => {
-    const near = processedInventories.filter(
-      (inv) => inv.daysToExpiry > 0 && inv.daysToExpiry <= 90
-    ).length;
-    const expired = processedInventories.filter((inv) => inv.daysToExpiry <= 0).length;
+    const near = processedInventories.filter((inv) => inv.status === 'near_expiry').length;
+    const expired = processedInventories.filter((inv) => inv.status === 'expired').length;
     const all = processedInventories.length;
     return { near, expired, all };
   }, [processedInventories]);
@@ -82,18 +83,23 @@ export default function InventoryExpiry() {
   };
 
   const isPriorityOutbound = (days: number, status: string) => {
-    return days > 0 && days < 60 && status !== 'locked';
+    return days > 0 && days < 90 && status !== 'locked';
   };
 
-  const handleLockExpired = () => {
-    lockExpiredInventory();
+  const handleLockExpired = async () => {
+    if (isLocking) return;
+    setIsLocking(true);
+    try {
+      const result = lockExpiredInventory();
+      setTipMessage(`锁定 ${result.count} 个批次，生成 ${result.scrapCount} 个报废工单`);
+      setTimeout(() => setTipMessage(null), 3000);
+    } finally {
+      setIsLocking(false);
+    }
   };
 
   const expiredUnlockedCount = useMemo(
-    () =>
-      processedInventories.filter(
-        (inv) => inv.daysToExpiry <= 0 && inv.status !== 'locked'
-      ).length,
+    () => processedInventories.filter((inv) => inv.status === 'expired').length,
     [processedInventories]
   );
 
@@ -101,13 +107,33 @@ export default function InventoryExpiry() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="page-title">效期管理</h1>
-        {expiredUnlockedCount > 0 && (
-          <button onClick={handleLockExpired} className="btn-danger flex items-center gap-2">
-            <Lock className="w-4 h-4" />
-            锁定已过期库存 ({expiredUnlockedCount})
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/inventory/scrap')}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <FileText className="w-4 h-4" />
+            报废工单
           </button>
-        )}
+          {expiredUnlockedCount > 0 && (
+            <button
+              onClick={handleLockExpired}
+              disabled={isLocking}
+              className="btn-danger flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Lock className="w-4 h-4" />
+              {isLocking ? '锁定中...' : `锁定已过期库存 (${expiredUnlockedCount})`}
+            </button>
+          )}
+        </div>
       </div>
+
+      {tipMessage && (
+        <div className="fixed top-6 right-6 bg-status-success text-white px-6 py-3 rounded-lg shadow-glow-green z-50 animate-fade-in flex items-center gap-2">
+          <CheckCircle className="w-5 h-5" />
+          {tipMessage}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="dashboard-card p-5">
@@ -116,7 +142,11 @@ export default function InventoryExpiry() {
               <p className="text-sm text-slate-500 mb-2">近效期(30天内)</p>
               <div className="flex items-baseline gap-1">
                 <span className="text-3xl font-bold text-status-danger data-number">
-                  {processedInventories.filter((inv) => inv.daysToExpiry > 0 && inv.daysToExpiry < 30).length}
+                  {
+                    processedInventories.filter(
+                      (inv) => inv.daysToExpiry > 0 && inv.daysToExpiry < 30 && inv.status !== 'locked'
+                    ).length
+                  }
                 </span>
                 <span className="text-sm text-slate-500">个</span>
               </div>
@@ -133,7 +163,12 @@ export default function InventoryExpiry() {
               <p className="text-sm text-slate-500 mb-2">近效期(60天内)</p>
               <div className="flex items-baseline gap-1">
                 <span className="text-3xl font-bold text-status-warning data-number">
-                  {processedInventories.filter((inv) => inv.daysToExpiry >= 30 && inv.daysToExpiry < 60).length}
+                  {
+                    processedInventories.filter(
+                      (inv) =>
+                        inv.daysToExpiry >= 30 && inv.daysToExpiry < 60 && inv.status !== 'locked'
+                    ).length
+                  }
                 </span>
                 <span className="text-sm text-slate-500">个</span>
               </div>
@@ -150,7 +185,12 @@ export default function InventoryExpiry() {
               <p className="text-sm text-slate-500 mb-2">近效期(90天内)</p>
               <div className="flex items-baseline gap-1">
                 <span className="text-3xl font-bold text-yellow-600 data-number">
-                  {processedInventories.filter((inv) => inv.daysToExpiry >= 60 && inv.daysToExpiry <= 90).length}
+                  {
+                    processedInventories.filter(
+                      (inv) =>
+                        inv.daysToExpiry >= 60 && inv.daysToExpiry <= 90 && inv.status !== 'locked'
+                    ).length
+                  }
                 </span>
                 <span className="text-sm text-slate-500">个</span>
               </div>
@@ -164,10 +204,10 @@ export default function InventoryExpiry() {
         <div className="dashboard-card p-5">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-slate-500 mb-2">已过期</p>
+              <p className="text-sm text-slate-500 mb-2">已锁定</p>
               <div className="flex items-baseline gap-1">
                 <span className="text-3xl font-bold text-slate-700 data-number">
-                  {processedInventories.filter((inv) => inv.daysToExpiry <= 0).length}
+                  {processedInventories.filter((inv) => inv.status === 'locked').length}
                 </span>
                 <span className="text-sm text-slate-500">个</span>
               </div>
@@ -235,6 +275,7 @@ export default function InventoryExpiry() {
                   const rowBg = getDaysBgColor(inv.daysToExpiry);
                   const priority = isPriorityOutbound(inv.daysToExpiry, inv.status);
                   const isLocked = inv.status === 'locked';
+                  const isExpired = inv.daysToExpiry <= 0;
 
                   return (
                     <tr key={inv.id} className={`table-row ${rowBg}`}>
@@ -269,17 +310,17 @@ export default function InventoryExpiry() {
                         {formatCurrency(inv.totalValue)}
                       </td>
                       <td className="px-5 py-4">
-                        {priority ? (
+                        {isLocked ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/15 text-slate-500">
+                            <Lock className="w-3.5 h-3.5" />
+                            已锁定，不可出库
+                          </span>
+                        ) : priority ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-status-warning/15 text-status-warning">
                             <ArrowUpCircle className="w-3.5 h-3.5" />
                             优先出库
                           </span>
-                        ) : isLocked ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/15 text-slate-500">
-                            <Lock className="w-3.5 h-3.5" />
-                            已锁定
-                          </span>
-                        ) : inv.daysToExpiry <= 0 ? (
+                        ) : isExpired ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-status-danger/15 text-status-danger">
                             <AlertCircle className="w-3.5 h-3.5" />
                             待锁定

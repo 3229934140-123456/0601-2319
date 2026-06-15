@@ -18,6 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Heart,
+  Package,
+  Trash2,
 } from 'lucide-react';
 import { cn, getRoleText } from '@/utils';
 import { useUserStore } from '@/store/userStore';
@@ -25,10 +27,12 @@ import { useUserStore } from '@/store/userStore';
 const menuConfig = [
   { path: '/dashboard', name: '首页大屏', icon: LayoutDashboard, roles: ['nurse', 'director', 'equipment', 'admin'] },
   { path: '/requisition', name: '科室申领', icon: ClipboardList, roles: ['nurse', 'director', 'equipment', 'admin'] },
+  { path: '/requisition/outbound', name: '出库单记录', icon: Package, roles: ['nurse', 'director', 'equipment', 'admin'] },
   { path: '/requisition/approval', name: '审批中心', icon: ClipboardCheck, roles: ['director', 'equipment', 'admin'] },
   { path: '/inventory', name: '库存总览', icon: Warehouse, roles: ['equipment', 'admin'] },
   { path: '/inventory/warning', name: '库存预警', icon: AlertTriangle, roles: ['equipment', 'admin'] },
   { path: '/inventory/expiry', name: '效期管理', icon: CalendarClock, roles: ['equipment', 'admin'] },
+  { path: '/inventory/scrap', name: '报废工单', icon: Trash2, roles: ['equipment', 'admin'] },
   { path: '/purchase/suggestion', name: '采购建议', icon: Lightbulb, roles: ['equipment', 'admin'] },
   { path: '/purchase/approval', name: '采购审批', icon: ShoppingCart, roles: ['equipment', 'admin'] },
   { path: '/purchase/order', name: '订单管理', icon: Receipt, roles: ['equipment', 'admin'] },
