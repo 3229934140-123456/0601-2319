@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { PieChart, Building2, Wallet, TrendingUp } from 'lucide-react';
-import { departments, consumptions } from '@/mock/data';
+import { consumptions } from '@/mock/data';
+import { useBudgetStore } from '@/store/budgetStore';
 import { formatCurrency, cn } from '@/utils';
 
 export default function Cost() {
   const thisMonth = new Date().toISOString().slice(0, 7);
+  const departments = useBudgetStore(state => state.getDepartments());
 
   const stats = useMemo(() => {
     const monthlyConsumptions = consumptions.filter(c => c.consumeDate.startsWith(thisMonth));
@@ -18,7 +20,7 @@ export default function Cost() {
       departmentCount: departments.length,
       totalBudget,
     };
-  }, [thisMonth]);
+  }, [thisMonth, departments]);
 
   const departmentCosts = useMemo(() => {
     return departments.map(dept => {
@@ -37,7 +39,7 @@ export default function Cost() {
         isWarning: usageRate >= 80 && usageRate <= 100,
       };
     });
-  }, [thisMonth]);
+  }, [thisMonth, departments]);
 
   return (
     <div className="space-y-6">

@@ -87,12 +87,14 @@ const StatCard = ({
   value,
   formatter,
   color,
+  note,
 }: {
   icon: React.ElementType;
   label: string;
   value: number;
   formatter: (val: number) => string;
   color: string;
+  note?: string;
 }) => {
   const animatedValue = useCountUp(value, 1200);
 
@@ -123,6 +125,7 @@ const StatCard = ({
           </span>
         </div>
         <p className="text-sm text-primary-300/80 mb-1">{label}</p>
+        {note && <p className="text-xs text-slate-400 mt-1">{note}</p>}
         <p className="text-3xl font-bold font-mono tracking-tight text-white">
           {formatter(animatedValue)}
         </p>
@@ -260,15 +263,15 @@ const ExportButtonGroup = () => {
     const { filter } = useDashboardStore.getState();
     const startStr = getDateRangeStart(filter.dateRange);
 
-    let filtered = consumptions.filter(c => c.consumeDate >= startStr);
+    let filteredCons = consumptions.filter(c => c.consumeDate >= startStr);
     if (filter.departmentId !== 'all') {
-      filtered = filtered.filter(c => c.departmentId === filter.departmentId);
+      filteredCons = filteredCons.filter(c => c.departmentId === filter.departmentId);
     }
     if (filter.category !== 'all') {
-      filtered = filtered.filter(c => c.category === filter.category);
+      filteredCons = filteredCons.filter(c => c.category === filter.category);
     }
 
-    const exportData = filtered.map(c => {
+    const exportData = filteredCons.map(c => {
       const material = materials.find(m => m.id === c.materialId);
       return {
         '月份': c.consumeDate.slice(0, 7),
@@ -282,46 +285,65 @@ const ExportButtonGroup = () => {
       };
     });
 
-    exportToCSV(exportData, `月度耗材消耗分析报表_${new Date().toISOString().slice(0, 10)}`);
+    const deptName = filter.departmentId === 'all'
+      ? '全部科室'
+      : departments.find(d => d.id === filter.departmentId)?.name || '全部科室';
+    const categoryName = filter.category === 'all' ? '全部类别' : filter.category;
+    const dateRangeName = dateRangeLabels[filter.dateRange];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const fileName = `月度消耗分析_${deptName}_${categoryName}_${dateRangeName}_${todayStr}`;
+
+    exportToCSV(exportData, fileName);
     setOpenExport(false);
   };
 
   const handleExportPurchaseOrders = () => {
     const { filter } = useDashboardStore.getState();
+    const days = getDateRangeDays(filter.dateRange);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startStr = startDate.toISOString().slice(0, 10);
+    let filteredPOs = purchaseOrders.filter(po => po.createTime.slice(0, 10) >= startStr);
 
-    let filtered = purchaseOrders.filter(po => {
-      if (filter.category !== 'all') {
-        return po.items.some(item => {
-          const material = materials.find(m => m.id === item.materialId);
-          return material && material.category === filter.category;
-        });
-      }
-      return true;
-    });
+    if (filter.category !== 'all') {
+      filteredPOs = filteredPOs.filter(po =>
+        po.items.some(item => {
+          const mat = materials.find(m => m.id === item.materialId);
+          return mat?.category === filter.category;
+        })
+      );
+    }
 
-    const exportData: any[] = [];
-    filtered.forEach(po => {
-      po.items.forEach(item => {
-        const material = materials.find(m => m.id === item.materialId);
-        if (filter.category !== 'all' && material && material.category !== filter.category) {
-          return;
-        }
-        exportData.push({
+    const detailRows: Record<string, any>[] = [];
+    for (const po of filteredPOs) {
+      for (const item of po.items) {
+        const mat = materials.find(m => m.id === item.materialId);
+        if (filter.category !== 'all' && mat?.category !== filter.category) continue;
+
+        detailRows.push({
           '订单号': po.id,
           '供应商': po.supplierName,
-          '耗材名称': item.materialName,
-          '规格': item.spec,
+          '耗材名称': mat?.name || item.materialName,
+          '规格': mat?.spec || '',
           '单位': item.unit,
           '数量': item.quantity,
           '单价': item.unitPrice.toFixed(2),
           '小计': item.subtotal.toFixed(2),
-          '下单时间': po.createTime.slice(0, 10),
+          '下单时间': po.createTime,
           '状态': po.status,
         });
-      });
-    });
+      }
+    }
 
-    exportToCSV(exportData, `采购明细_${new Date().toISOString().slice(0, 10)}`);
+    const deptName = filter.departmentId === 'all'
+      ? '全部科室'
+      : departments.find(d => d.id === filter.departmentId)?.name || '全部科室';
+    const categoryName = filter.category === 'all' ? '全部类别' : filter.category;
+    const dateRangeName = dateRangeLabels[filter.dateRange];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const fileName = `采购明细_${deptName}_${categoryName}_${dateRangeName}_${todayStr}`;
+
+    exportToCSV(detailRows, fileName);
     setOpenExport(false);
   };
 
@@ -638,6 +660,7 @@ export default function DashboardPage() {
             value={stats.totalInventoryValue}
             formatter={formatCurrency}
             color="#1E6FD9"
+            note={stats.inventoryFilterNote}
           />
           <StatCard
             icon={TrendingDown}
@@ -652,6 +675,7 @@ export default function DashboardPage() {
             value={stats.monthlyPurchase}
             formatter={formatCurrency}
             color="#FF9500"
+            note={stats.purchaseFilterNote}
           />
           <StatCard
             icon={AlertTriangle}
@@ -743,7 +767,10 @@ export default function DashboardPage() {
           )}
         >
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-white font-semibold text-base">采购执行进度</h3>
+            <div>
+              <h3 className="text-white font-semibold text-base">采购执行进度</h3>
+              {stats.purchaseFilterNote && <p className="text-xs text-slate-400 mt-1">{stats.purchaseFilterNote}</p>}
+            </div>
             <span className="text-xs text-primary-400/80">采购订单状态分布</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

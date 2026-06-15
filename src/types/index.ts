@@ -161,6 +161,8 @@ export interface DashboardStats {
   nearExpiryRatio: { category: string; ratio: number; count: number }[];
   purchaseProgress: { status: string; count: number; percentage: number }[];
   departmentConsumption: { department: string; amount: number }[];
+  inventoryFilterNote: string;
+  purchaseFilterNote: string;
 }
 
 export interface SystemConfig {

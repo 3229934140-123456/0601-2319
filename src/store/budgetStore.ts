@@ -12,7 +12,7 @@ interface BudgetState {
   reduceUsedBudget: (departmentId: string, amount: number) => void;
   addPendingBudget: (departmentId: string, amount: number) => void;
   reducePendingBudget: (departmentId: string, amount: number) => void;
-  getBudgetInfo: (departmentId: string) => { budget: number; used: number; remaining: number; pending: number };
+  getBudgetInfo: (departmentId: string) => { budget: number; used: number; remaining: number; pending: number; available: number; usageRate: number };
 }
 
 export const useBudgetStore = create<BudgetState>()(
@@ -30,7 +30,7 @@ export const useBudgetStore = create<BudgetState>()(
         set(state => ({
           departments: state.departments.map(d =>
             d.id === departmentId
-              ? { ...d, usedBudget: Math.min(d.monthlyBudget, d.usedBudget + amount) }
+              ? { ...d, usedBudget: d.usedBudget + amount }
               : d
           ),
         }));
@@ -66,13 +66,18 @@ export const useBudgetStore = create<BudgetState>()(
 
       getBudgetInfo: (departmentId) => {
         const dept = get().departments.find(d => d.id === departmentId);
-        if (!dept) return { budget: 0, used: 0, remaining: 0, pending: 0 };
+        if (!dept) return { budget: 0, used: 0, remaining: 0, pending: 0, available: 0, usageRate: 0 };
         const pending = get().pendingAmounts[departmentId] || 0;
+        const remaining = dept.monthlyBudget - dept.usedBudget;
+        const available = remaining - pending;
+        const usageRate = dept.monthlyBudget > 0 ? (dept.usedBudget / dept.monthlyBudget) * 100 : 0;
         return {
           budget: dept.monthlyBudget,
           used: dept.usedBudget,
-          remaining: dept.monthlyBudget - dept.usedBudget,
+          remaining,
           pending,
+          available,
+          usageRate,
         };
       },
     }),

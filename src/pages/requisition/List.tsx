@@ -66,7 +66,7 @@ export default function RequisitionList() {
   }, [currentUser]);
 
   const budgetInfo = useBudgetStore(state => state.getBudgetInfo(currentUser.departmentId));
-  const budgetPercentage = budgetInfo.budget > 0 ? (budgetInfo.used / budgetInfo.budget) * 100 : 0;
+  const { budget, used, remaining, pending, available, usageRate } = budgetInfo;
 
   const handleAddMaterial = () => {
     if (!selectedMaterialId) return;
@@ -171,12 +171,10 @@ export default function RequisitionList() {
   };
 
   const getApprovalTip = () => {
-    if (!currentDepartment) return '';
-    const availableRemaining = budgetInfo.remaining - budgetInfo.pending;
-    if (totalAmount > availableRemaining) {
-      return `本次申领：${formatCurrency(totalAmount)}，超出剩余额度，需要三级审批`;
+    if (totalAmount > available) {
+      return `本次申领：${formatCurrency(totalAmount)}，超出可用额度（${formatCurrency(available)}），需要三级审批`;
     }
-    return `本次申领在预算内，直接通过`;
+    return `本次申领：${formatCurrency(totalAmount)}，在可用额度内（${formatCurrency(available)}），直接通过`;
   };
 
   return (
@@ -359,53 +357,62 @@ export default function RequisitionList() {
                 </div>
               </div>
 
-              {currentDepartment && (
-                <div className="dashboard-card p-4">
-                  <h3 className="section-title mb-3">科室预算使用情况</h3>
-                  <div className="grid grid-cols-4 gap-4 mb-4">
-                    <div>
-                      <p className="text-sm text-slate-500 mb-1">月度预算</p>
-                      <p className="text-lg font-bold text-slate-800">{formatCurrency(budgetInfo.budget)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-500 mb-1">已使用</p>
-                      <p className="text-lg font-bold text-slate-700">{formatCurrency(budgetInfo.used)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-500 mb-1">剩余额度</p>
-                      <p className={`text-lg font-bold ${budgetInfo.remaining - budgetInfo.pending >= 0 ? 'text-status-success' : 'text-status-danger'}`}>
-                        {formatCurrency(budgetInfo.remaining - budgetInfo.pending)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-500 mb-1">审批中占用</p>
-                      <p className="text-lg font-bold text-status-warning">{formatCurrency(budgetInfo.pending)}</p>
-                    </div>
+              <div className="dashboard-card p-4">
+                <h3 className="section-title mb-3">科室预算使用情况</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">月度预算</p>
+                    <p className="text-lg font-bold text-slate-800">{formatCurrency(budget)}</p>
                   </div>
-                  <div className="w-full bg-slate-200 rounded-full h-2.5">
-                    <div
-                      className={`h-2.5 rounded-full transition-all duration-300 ${
-                        budgetPercentage >= 100
-                          ? 'bg-status-danger'
-                          : budgetPercentage >= 80
-                          ? 'bg-status-warning'
-                          : 'bg-status-success'
-                      }`}
-                      style={{ width: `${Math.min(budgetPercentage, 100)}%` }}
-                    ></div>
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">已使用</p>
+                    <p className={`text-lg font-bold ${usageRate >= 100 ? 'text-status-danger' : 'text-slate-700'}`}>
+                      {formatCurrency(used)}
+                    </p>
                   </div>
-                  <div className="text-right text-xs text-slate-500 mt-1">
-                    使用率：{budgetPercentage.toFixed(1)}%
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">可用额度</p>
+                    <p className={`text-lg font-bold ${available >= 0 ? 'text-status-success' : 'text-status-danger'}`}>
+                      {formatCurrency(available)}
+                    </p>
                   </div>
-                  {formItems.length > 0 && (
-                    <div className={`mt-3 p-3 rounded-lg text-sm ${
-                      totalAmount > budgetInfo.remaining - budgetInfo.pending ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
-                    }`}>
-                      {getApprovalTip()}
-                    </div>
-                  )}
+                  <div>
+                    <p className="text-sm text-slate-500 mb-1">剩余额度</p>
+                    <p className={`text-lg font-bold ${remaining >= 0 ? 'text-primary-600' : 'text-status-danger'}`}>
+                      {formatCurrency(remaining)}
+                    </p>
+                  </div>
                 </div>
-              )}
+                {pending > 0 && (
+                  <div className="mb-4 p-2 bg-slate-50 rounded-lg">
+                    <p className="text-sm text-slate-500">
+                      审批中占用：<span className="font-semibold text-slate-600">{formatCurrency(pending)}</span>
+                    </p>
+                  </div>
+                )}
+                <div className="w-full bg-slate-200 rounded-full h-2.5">
+                  <div
+                    className={`h-2.5 rounded-full transition-all duration-300 ${
+                      usageRate >= 100
+                        ? 'bg-status-danger'
+                        : usageRate >= 80
+                        ? 'bg-status-warning'
+                        : 'bg-status-success'
+                    }`}
+                    style={{ width: `${Math.min(usageRate, 100)}%` }}
+                  ></div>
+                </div>
+                <div className="text-right text-xs text-slate-500 mt-1">
+                  使用率：{usageRate.toFixed(1)}%
+                </div>
+                {formItems.length > 0 && (
+                  <div className={`mt-3 p-3 rounded-lg text-sm ${
+                    totalAmount > available ? 'bg-red-50 text-status-danger' : 'bg-green-50 text-status-success'
+                  }`}>
+                    {getApprovalTip()}
+                  </div>
+                )}
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">选择耗材</label>

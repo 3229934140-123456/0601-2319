@@ -1,7 +1,32 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { DashboardFilter, DashboardStats } from '@/types';
-import { dashboardStats as mockStats, consumptions, departments, materials, inventories, purchaseOrders, requisitions } from '@/mock/data';
+import type {
+  DashboardFilter,
+  DashboardStats,
+  Consumption,
+  PurchaseOrder,
+  PurchaseOrderItem,
+  Inventory,
+  Material,
+} from '@/types';
+import {
+  dashboardStats as mockStats,
+  consumptions,
+  departments,
+  materials,
+  inventories,
+  purchaseOrders,
+  requisitions,
+} from '@/mock/data';
+
+interface FilterResult {
+  filteredConsumptions: Consumption[];
+  filteredPurchaseOrders: PurchaseOrder[];
+  filteredPurchaseDetails: { po: PurchaseOrder; item: PurchaseOrderItem; mat: Material }[];
+  filteredInventories: Inventory[];
+  inventoryFilterNote: string;
+  purchaseFilterNote: string;
+}
 
 interface DashboardState {
   filter: DashboardFilter;
@@ -12,57 +37,122 @@ interface DashboardState {
 
 const getDateRangeDays = (range: DashboardFilter['dateRange']): number => {
   switch (range) {
-    case '7d': return 7;
-    case '15d': return 15;
-    case '30d': return 30;
-    case 'month': return 30;
-    default: return 30;
+    case '7d':
+      return 7;
+    case '15d':
+      return 15;
+    case '30d':
+      return 30;
+    case 'month':
+      return 30;
+    default:
+      return 30;
   }
 };
 
-const generateStats = (filter: DashboardFilter): DashboardStats => {
+const applyFilter = (
+  filter: DashboardFilter,
+  consumptionsData: Consumption[],
+  purchaseOrdersData: PurchaseOrder[],
+  inventoriesData: Inventory[],
+  materialsData: Material[]
+): FilterResult => {
   const days = getDateRangeDays(filter.dateRange);
   const today = new Date();
   const startDate = new Date(today);
   startDate.setDate(startDate.getDate() - days);
   const startStr = startDate.toISOString().slice(0, 10);
+  const thisMonth = today.toISOString().slice(0, 7);
 
-  let filteredConsumptions = consumptions.filter(c => c.consumeDate >= startStr);
+  let filteredConsumptions = consumptionsData.filter((c) => c.consumeDate >= startStr);
   if (filter.departmentId !== 'all') {
-    filteredConsumptions = filteredConsumptions.filter(c => c.departmentId === filter.departmentId);
+    filteredConsumptions = filteredConsumptions.filter(
+      (c) => c.departmentId === filter.departmentId
+    );
   }
   if (filter.category !== 'all') {
-    filteredConsumptions = filteredConsumptions.filter(c => c.category === filter.category);
+    filteredConsumptions = filteredConsumptions.filter((c) => c.category === filter.category);
   }
 
-  let filteredInventories = inventories.filter(inv => inv.status !== 'locked');
-  if (filter.departmentId !== 'all') {
-  }
+  let filteredPurchaseOrders = purchaseOrdersData.filter((po) =>
+    po.createTime.startsWith(thisMonth)
+  );
+
+  const filteredPurchaseDetails: {
+    po: PurchaseOrder;
+    item: PurchaseOrderItem;
+    mat: Material;
+  }[] = [];
+
+  filteredPurchaseOrders.forEach((po) => {
+    po.items.forEach((item) => {
+      const mat = materialsData.find((m) => m.id === item.materialId);
+      if (mat) {
+        if (filter.category !== 'all' && mat.category !== filter.category) {
+          return;
+        }
+        filteredPurchaseDetails.push({ po, item, mat });
+      }
+    });
+  });
+
   if (filter.category !== 'all') {
-    filteredInventories = filteredInventories.filter(inv => inv.category === filter.category);
+    filteredPurchaseOrders = filteredPurchaseOrders.filter((po) =>
+      po.items.some((item) => {
+        const mat = materialsData.find((m) => m.id === item.materialId);
+        return mat && mat.category === filter.category;
+      })
+    );
   }
 
-  let filteredOrders = purchaseOrders;
-  if (filter.departmentId !== 'all') {
+  let filteredInventories = inventoriesData.filter((inv) => inv.status !== 'locked');
+  if (filter.category !== 'all') {
+    filteredInventories = filteredInventories.filter((inv) => inv.category === filter.category);
   }
+
+  const inventoryFilterNote =
+    filter.departmentId !== 'all' ? '全院库存（库存无科室维度）' : '全院库存';
+  const purchaseFilterNote =
+    filter.departmentId !== 'all' ? '全院采购（采购无科室维度）' : '全院采购';
+
+  return {
+    filteredConsumptions,
+    filteredPurchaseOrders,
+    filteredPurchaseDetails,
+    filteredInventories,
+    inventoryFilterNote,
+    purchaseFilterNote,
+  };
+};
+
+const generateStats = (filter: DashboardFilter): DashboardStats => {
+  const days = getDateRangeDays(filter.dateRange);
+  const today = new Date();
+
+  const {
+    filteredConsumptions,
+    filteredPurchaseOrders,
+    filteredPurchaseDetails,
+    filteredInventories,
+    inventoryFilterNote,
+    purchaseFilterNote,
+  } = applyFilter(filter, consumptions, purchaseOrders, inventories, materials);
 
   const totalInventoryValue = filteredInventories.reduce((sum, inv) => sum + inv.totalValue, 0);
   const monthlyConsumption = filteredConsumptions.reduce((sum, c) => sum + c.amount, 0);
-  const thisMonth = new Date().toISOString().slice(0, 7);
-  const monthlyPurchase = filteredOrders
-    .filter(po => po.createTime.startsWith(thisMonth))
-    .reduce((sum, po) => sum + po.totalAmount, 0);
-  const nearExpiryCount = filteredInventories.filter(inv =>
-    inv.status === 'near_expiry' || inv.status === 'expired'
+  const monthlyPurchase = filteredPurchaseDetails.reduce((sum, detail) => sum + detail.item.subtotal, 0);
+  const nearExpiryCount = filteredInventories.filter(
+    (inv) => inv.status === 'near_expiry' || inv.status === 'expired'
   ).length;
-  const warningCount = filteredInventories.filter(inv => inv.status === 'warning').length;
-  const pendingApprovalCount = requisitions.filter(r => r.status === 'pending').length;
+  const warningCount = filteredInventories.filter((inv) => inv.status === 'warning').length;
+  const pendingApprovalCount = requisitions.filter((r) => r.status === 'pending').length;
 
   const trendData: { date: string; amount: number; department: string }[] = [];
   const trendDays = Math.min(days, 7);
-  const deptIds = filter.departmentId !== 'all'
-    ? [filter.departmentId]
-    : departments.slice(0, 4).map(d => d.id);
+  const deptIds =
+    filter.departmentId !== 'all'
+      ? [filter.departmentId]
+      : departments.slice(0, 4).map((d) => d.id);
 
   for (let i = trendDays - 1; i >= 0; i--) {
     const date = new Date(today);
@@ -70,10 +160,10 @@ const generateStats = (filter: DashboardFilter): DashboardStats => {
     const dateStr = date.toISOString().slice(0, 10);
     const shortDate = dateStr.slice(5);
 
-    deptIds.forEach(deptId => {
-      const dept = departments.find(d => d.id === deptId);
+    deptIds.forEach((deptId) => {
+      const dept = departments.find((d) => d.id === deptId);
       const dayConsumption = filteredConsumptions
-        .filter(c => c.consumeDate === dateStr && c.departmentId === deptId)
+        .filter((c) => c.consumeDate === dateStr && c.departmentId === deptId)
         .reduce((sum, c) => sum + c.amount, 0);
       trendData.push({
         date: shortDate,
@@ -84,10 +174,10 @@ const generateStats = (filter: DashboardFilter): DashboardStats => {
   }
 
   const turnoverRate = departments
-    .filter(d => filter.departmentId === 'all' || d.id === filter.departmentId)
-    .map(dept => {
+    .filter((d) => filter.departmentId === 'all' || d.id === filter.departmentId)
+    .map((dept) => {
       const deptConsumption = filteredConsumptions
-        .filter(c => c.departmentId === dept.id)
+        .filter((c) => c.departmentId === dept.id)
         .reduce((sum, c) => sum + c.amount, 0);
       const avgInventory = totalInventoryValue / departments.length;
       return {
@@ -97,7 +187,7 @@ const generateStats = (filter: DashboardFilter): DashboardStats => {
     });
 
   const categoryMap = new Map<string, { count: number; total: number }>();
-  filteredInventories.forEach(inv => {
+  filteredInventories.forEach((inv) => {
     const cat = filter.category !== 'all' ? filter.category : inv.category;
     const existing = categoryMap.get(cat) || { count: 0, total: 0 };
     categoryMap.set(cat, {
@@ -112,10 +202,10 @@ const generateStats = (filter: DashboardFilter): DashboardStats => {
   }));
 
   const statusCounts: Record<string, number> = {};
-  filteredOrders.forEach(po => {
+  filteredPurchaseOrders.forEach((po) => {
     statusCounts[po.status] = (statusCounts[po.status] || 0) + 1;
   });
-  const totalPOs = Math.max(filteredOrders.length, 1);
+  const totalPOs = Math.max(filteredPurchaseOrders.length, 1);
   const statusLabels: Record<string, string> = {
     pending: '待审批',
     approved: '已批准',
@@ -130,11 +220,11 @@ const generateStats = (filter: DashboardFilter): DashboardStats => {
   }));
 
   const departmentConsumption = departments
-    .filter(d => filter.departmentId === 'all' || d.id === filter.departmentId)
-    .map(dept => ({
+    .filter((d) => filter.departmentId === 'all' || d.id === filter.departmentId)
+    .map((dept) => ({
       department: dept.name,
       amount: filteredConsumptions
-        .filter(c => c.departmentId === dept.id)
+        .filter((c) => c.departmentId === dept.id)
         .reduce((sum, c) => sum + c.amount, 0),
     }));
 
@@ -150,6 +240,8 @@ const generateStats = (filter: DashboardFilter): DashboardStats => {
     nearExpiryRatio,
     purchaseProgress,
     departmentConsumption,
+    inventoryFilterNote,
+    purchaseFilterNote,
   };
 };
 

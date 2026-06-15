@@ -320,6 +320,8 @@ const generateDashboardStats = (): DashboardStats => {
     nearExpiryRatio,
     purchaseProgress,
     departmentConsumption,
+    inventoryFilterNote: '全院库存',
+    purchaseFilterNote: '全院采购',
   };
 };
 

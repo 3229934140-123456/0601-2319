@@ -99,7 +99,7 @@ export const useRequisitionStore = create<RequisitionState>()(
 
         const budgetStore = useBudgetStore.getState();
         const budgetInfo = budgetStore.getBudgetInfo(data.departmentId);
-        const needsApproval = totalAmount > budgetInfo.remaining;
+        const needsApproval = totalAmount > budgetInfo.available;
 
         const newRequisition: Requisition = {
           id: generateId(),
