@@ -59,9 +59,11 @@ export default function RequisitionOutbound() {
 
   const handleCancel = (id: string) => {
     if (confirm('确认取消该出库单？')) {
-      cancelOutboundOrder(id, currentUser.id, currentUser.name);
-      setSuccessMessage('已取消');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      const result = cancelOutboundOrder(id, currentUser.id, currentUser.name);
+      if (result.success) {
+        setSuccessMessage(result.message || '已取消');
+        setTimeout(() => setSuccessMessage(''), 3000);
+      }
     }
   };
 
@@ -229,21 +231,35 @@ export default function RequisitionOutbound() {
                       >
                         查看详情
                       </button>
-                      {order.status === 'pending' && (currentUser.role === 'equipment' || currentUser.role === 'admin') && (
-                        <>
+                      {(currentUser.role === 'equipment' || currentUser.role === 'admin') && order.status === 'pending' && (
+                        <button
+                          className="text-status-success hover:text-green-700 font-medium text-sm"
+                          onClick={() => handleComplete(order.id)}
+                        >
+                          确认出库
+                        </button>
+                      )}
+                      {(currentUser.role === 'equipment' || currentUser.role === 'admin') && (
+                        <div className="relative group">
                           <button
-                            className="text-status-success hover:text-green-700 font-medium text-sm"
-                            onClick={() => handleComplete(order.id)}
-                          >
-                            确认出库
-                          </button>
-                          <button
-                            className="text-status-danger hover:text-red-700 font-medium text-sm"
-                            onClick={() => handleCancel(order.id)}
+                            className={`font-medium text-sm ${
+                              order.status === 'completed'
+                                ? 'text-slate-400 cursor-not-allowed'
+                                : order.status === 'pending'
+                                ? 'text-status-danger hover:text-red-700'
+                                : 'text-slate-400 cursor-not-allowed'
+                            }`}
+                            onClick={() => order.status === 'pending' && handleCancel(order.id)}
+                            disabled={order.status === 'completed'}
                           >
                             取消
                           </button>
-                        </>
+                          {order.status === 'completed' && (
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-slate-800 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              已确认出库，不可取消
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </td>
@@ -348,27 +364,37 @@ export default function RequisitionOutbound() {
             </div>
 
             <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
-              {detailOrder.status === 'pending' && (currentUser.role === 'equipment' || currentUser.role === 'admin') && (
-                <>
+              {(currentUser.role === 'equipment' || currentUser.role === 'admin') && detailOrder.status === 'pending' && (
+                <button
+                  className="btn-success"
+                  onClick={() => {
+                    handleComplete(detailOrder.id);
+                    setShowDetailModal(false);
+                  }}
+                >
+                  确认出库
+                </button>
+              )}
+              {(currentUser.role === 'equipment' || currentUser.role === 'admin') && (
+                <div className="relative group">
                   <button
-                    className="btn-danger"
+                    className={`btn-danger ${detailOrder.status === 'completed' ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={() => {
-                      handleCancel(detailOrder.id);
-                      setShowDetailModal(false);
+                      if (detailOrder.status === 'pending') {
+                        handleCancel(detailOrder.id);
+                        setShowDetailModal(false);
+                      }
                     }}
+                    disabled={detailOrder.status === 'completed'}
                   >
                     取消出库单
                   </button>
-                  <button
-                    className="btn-success"
-                    onClick={() => {
-                      handleComplete(detailOrder.id);
-                      setShowDetailModal(false);
-                    }}
-                  >
-                    确认出库
-                  </button>
-                </>
+                  {detailOrder.status === 'completed' && (
+                    <div className="absolute bottom-full right-0 mb-1 px-2 py-1 bg-slate-800 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                      已确认出库，不可取消
+                    </div>
+                  )}
+                </div>
               )}
               <button className="btn-secondary" onClick={() => setShowDetailModal(false)}>
                 关闭

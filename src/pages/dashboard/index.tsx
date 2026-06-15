@@ -26,7 +26,25 @@ const dateRangeLabels: Record<DashboardFilter['dateRange'], string> = {
   'month': '本月',
 };
 
-const materialCategories = ['全部', ...Array.from(new Set(materials.map(m => m.category)))];
+const getDateRangeDays = (range: DashboardFilter['dateRange']): number => {
+  switch (range) {
+    case '7d': return 7;
+    case '15d': return 15;
+    case '30d': return 30;
+    case 'month': return 30;
+    default: return 30;
+  }
+};
+
+const getDateRangeStart = (range: DashboardFilter['dateRange']): string => {
+  const days = getDateRangeDays(range);
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - days);
+  return startDate.toISOString().slice(0, 10);
+};
+
+const materialCategories = ['all', ...Array.from(new Set(materials.map(m => m.category)))];
 
 const useCountUp = (target: number, duration: number = 1000) => {
   const [value, setValue] = useState(0);
@@ -117,11 +135,11 @@ const FilterToolbar = () => {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const { filter, setFilter } = useDashboardStore();
 
-  const selectedDeptName = filter.departmentId === 'all' 
-    ? '全部科室' 
+  const selectedDeptName = filter.departmentId === 'all'
+    ? '全部科室'
     : departments.find(d => d.id === filter.departmentId)?.name || '全部科室';
-  
-  const selectedCategory = filter.category === 'all' ? '全部' : filter.category;
+
+  const selectedCategory = filter.category === 'all' ? '全部类别' : filter.category;
   const selectedDateRange = dateRangeLabels[filter.dateRange];
 
   return (
@@ -185,18 +203,18 @@ const FilterToolbar = () => {
             {materialCategories.map((c) => (
               <button
                 key={c}
-                onClick={() => { 
-                  setFilter({ category: c === '全部' ? 'all' : c }); 
-                  setOpenDropdown(null); 
+                onClick={() => {
+                  setFilter({ category: c });
+                  setOpenDropdown(null);
                 }}
                 className={cn(
                   'w-full px-4 py-2 text-left text-sm transition-colors',
-                  (c === '全部' && filter.category === 'all') || filter.category === c
+                  filter.category === c
                     ? 'bg-primary-600/40 text-white'
                     : 'text-primary-200 hover:bg-primary-800/60 text-white'
                 )}
               >
-                {c}
+                {c === 'all' ? '全部类别' : c}
               </button>
             ))}
           </div>
@@ -240,21 +258,7 @@ const ExportButtonGroup = () => {
 
   const handleExportConsumptions = () => {
     const { filter } = useDashboardStore.getState();
-    const getDateRangeDays = (range: DashboardFilter['dateRange']): number => {
-      switch (range) {
-        case '7d': return 7;
-        case '15d': return 15;
-        case '30d': return 30;
-        case 'month': return 30;
-        default: return 30;
-      }
-    };
-    
-    const days = getDateRangeDays(filter.dateRange);
-    const today = new Date();
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - days);
-    const startStr = startDate.toISOString().slice(0, 10);
+    const startStr = getDateRangeStart(filter.dateRange);
 
     let filtered = consumptions.filter(c => c.consumeDate >= startStr);
     if (filter.departmentId !== 'all') {
@@ -264,45 +268,58 @@ const ExportButtonGroup = () => {
       filtered = filtered.filter(c => c.category === filter.category);
     }
 
-    const exportData = filtered.map(c => ({
-      '消耗日期': c.consumeDate,
-      '科室': c.departmentName,
-      '耗材名称': c.materialName,
-      '类别': c.category,
-      '规格': c.unit,
-      '数量': c.quantity,
-      '金额(元)': c.amount.toFixed(2),
-    }));
+    const exportData = filtered.map(c => {
+      const material = materials.find(m => m.id === c.materialId);
+      return {
+        '月份': c.consumeDate.slice(0, 7),
+        '科室': c.departmentName,
+        '耗材类别': c.category,
+        '耗材名称': c.materialName,
+        '消耗数量': c.quantity,
+        '单位': c.unit,
+        '单价': material ? material.price.toFixed(2) : (c.amount / c.quantity).toFixed(2),
+        '总金额': c.amount.toFixed(2),
+      };
+    });
 
-    exportToCSV(exportData, `月度消耗分析_${new Date().toISOString().slice(0, 10)}`);
+    exportToCSV(exportData, `月度耗材消耗分析报表_${new Date().toISOString().slice(0, 10)}`);
     setOpenExport(false);
   };
 
   const handleExportPurchaseOrders = () => {
     const { filter } = useDashboardStore.getState();
-    
-    let filtered = purchaseOrders;
-    if (filter.departmentId !== 'all') {
-      const deptName = departments.find(d => d.id === filter.departmentId)?.name;
-      if (deptName) {
-        filtered = filtered.filter(po => 
-          po.items.some(item => {
-            const material = materials.find(m => m.id === item.materialId);
-            return material && filter.category !== 'all' ? material.category === filter.category : true;
-          })
-        );
-      }
-    }
 
-    const exportData = filtered.map(po => ({
-      '订单编号': po.id,
-      '供应商': po.supplierName,
-      '创建人': po.creatorName,
-      '创建时间': po.createTime,
-      '状态': po.status,
-      '总金额(元)': po.totalAmount.toFixed(2),
-      '耗材明细': po.items.map(i => `${i.materialName}x${i.quantity}`).join('; '),
-    }));
+    let filtered = purchaseOrders.filter(po => {
+      if (filter.category !== 'all') {
+        return po.items.some(item => {
+          const material = materials.find(m => m.id === item.materialId);
+          return material && material.category === filter.category;
+        });
+      }
+      return true;
+    });
+
+    const exportData: any[] = [];
+    filtered.forEach(po => {
+      po.items.forEach(item => {
+        const material = materials.find(m => m.id === item.materialId);
+        if (filter.category !== 'all' && material && material.category !== filter.category) {
+          return;
+        }
+        exportData.push({
+          '订单号': po.id,
+          '供应商': po.supplierName,
+          '耗材名称': item.materialName,
+          '规格': item.spec,
+          '单位': item.unit,
+          '数量': item.quantity,
+          '单价': item.unitPrice.toFixed(2),
+          '小计': item.subtotal.toFixed(2),
+          '下单时间': po.createTime.slice(0, 10),
+          '状态': po.status,
+        });
+      });
+    });
 
     exportToCSV(exportData, `采购明细_${new Date().toISOString().slice(0, 10)}`);
     setOpenExport(false);
@@ -326,7 +343,7 @@ const ExportButtonGroup = () => {
           >
             <FileSpreadsheet size={16} className="text-primary-400" />
             <div>
-              <div className="font-medium">导出月度消耗分析</div>
+              <div className="font-medium">月度耗材消耗分析</div>
               <div className="text-xs text-primary-400/70">CSV 格式</div>
             </div>
           </button>
@@ -347,12 +364,12 @@ const ExportButtonGroup = () => {
 };
 
 export default function DashboardPage() {
-  const { stats, refreshStats } = useDashboardStore();
+  const { stats, filter, refreshStats } = useDashboardStore();
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
   useEffect(() => {
     refreshStats();
-  }, []);
+  }, [refreshStats]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -656,7 +673,7 @@ export default function DashboardPage() {
           >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-white font-semibold text-base">科室消耗趋势</h3>
-              <span className="text-xs text-primary-400/80">{dateRangeLabels[useDashboardStore.getState().filter.dateRange]}</span>
+              <span className="text-xs text-primary-400/80">{dateRangeLabels[filter.dateRange]}</span>
             </div>
             <div style={{ height: '320px' }}>
               <ReactECharts option={trendOption} style={{ height: '100%', width: '100%' }} />

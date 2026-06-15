@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRequisitionStore } from '@/store/requisitionStore';
 import { useOutboundStore } from '@/store/outboundStore';
 import { useUserStore } from '@/store/userStore';
+import { useBudgetStore } from '@/store/budgetStore';
 import { materials, departments } from '@/mock/data';
 import { formatCurrency, formatDate, getStatusText } from '@/utils';
 import type { Requisition, Material, OutboundOrder } from '@/types';
@@ -64,18 +65,8 @@ export default function RequisitionList() {
     return departments.find(d => d.id === currentUser.departmentId);
   }, [currentUser]);
 
-  const budgetInfo = useMemo(() => {
-    if (!currentDepartment) return { budget: 0, used: 0, remaining: 0, percentage: 0 };
-    const used = currentDepartment.usedBudget;
-    const remaining = currentDepartment.monthlyBudget - used;
-    const percentage = (used / currentDepartment.monthlyBudget) * 100;
-    return {
-      budget: currentDepartment.monthlyBudget,
-      used,
-      remaining,
-      percentage,
-    };
-  }, [currentDepartment]);
+  const budgetInfo = useBudgetStore(state => state.getBudgetInfo(currentUser.departmentId));
+  const budgetPercentage = budgetInfo.budget > 0 ? (budgetInfo.used / budgetInfo.budget) * 100 : 0;
 
   const handleAddMaterial = () => {
     if (!selectedMaterialId) return;
@@ -181,11 +172,11 @@ export default function RequisitionList() {
 
   const getApprovalTip = () => {
     if (!currentDepartment) return '';
-    const remaining = budgetInfo.remaining;
-    if (totalAmount > remaining) {
-      return `本次申领金额 ${formatCurrency(totalAmount)} 超过剩余预算 ${formatCurrency(remaining)}，将进入三级审批流程`;
+    const availableRemaining = budgetInfo.remaining - budgetInfo.pending;
+    if (totalAmount > availableRemaining) {
+      return `本次申领：${formatCurrency(totalAmount)}，超出剩余额度，需要三级审批`;
     }
-    return `本次申领金额 ${formatCurrency(totalAmount)} 未超过剩余预算，将直接通过`;
+    return `本次申领在预算内，直接通过`;
   };
 
   return (
@@ -381,34 +372,34 @@ export default function RequisitionList() {
                       <p className="text-lg font-bold text-slate-700">{formatCurrency(budgetInfo.used)}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-slate-500 mb-1">剩余预算</p>
-                      <p className={`text-lg font-bold ${budgetInfo.remaining >= 0 ? 'text-status-success' : 'text-status-danger'}`}>
-                        {formatCurrency(budgetInfo.remaining)}
+                      <p className="text-sm text-slate-500 mb-1">剩余额度</p>
+                      <p className={`text-lg font-bold ${budgetInfo.remaining - budgetInfo.pending >= 0 ? 'text-status-success' : 'text-status-danger'}`}>
+                        {formatCurrency(budgetInfo.remaining - budgetInfo.pending)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm text-slate-500 mb-1">本次申领预计占用</p>
-                      <p className="text-lg font-bold text-primary-600">{formatCurrency(totalAmount)}</p>
+                      <p className="text-sm text-slate-500 mb-1">审批中占用</p>
+                      <p className="text-lg font-bold text-status-warning">{formatCurrency(budgetInfo.pending)}</p>
                     </div>
                   </div>
                   <div className="w-full bg-slate-200 rounded-full h-2.5">
                     <div
                       className={`h-2.5 rounded-full transition-all duration-300 ${
-                        budgetInfo.percentage >= 100
+                        budgetPercentage >= 100
                           ? 'bg-status-danger'
-                          : budgetInfo.percentage >= 80
+                          : budgetPercentage >= 80
                           ? 'bg-status-warning'
                           : 'bg-status-success'
                       }`}
-                      style={{ width: `${Math.min(budgetInfo.percentage, 100)}%` }}
+                      style={{ width: `${Math.min(budgetPercentage, 100)}%` }}
                     ></div>
                   </div>
                   <div className="text-right text-xs text-slate-500 mt-1">
-                    使用率：{budgetInfo.percentage.toFixed(1)}%
+                    使用率：{budgetPercentage.toFixed(1)}%
                   </div>
                   {formItems.length > 0 && (
                     <div className={`mt-3 p-3 rounded-lg text-sm ${
-                      totalAmount > budgetInfo.remaining ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
+                      totalAmount > budgetInfo.remaining - budgetInfo.pending ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'
                     }`}>
                       {getApprovalTip()}
                     </div>

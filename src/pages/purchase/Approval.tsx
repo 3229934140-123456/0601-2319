@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ClipboardCheck,
   CheckCircle2,
@@ -10,17 +10,16 @@ import {
   User,
   Calendar,
   Shield,
+  Inbox,
 } from 'lucide-react';
 import { usePurchaseStore } from '@/store/purchaseStore';
+import { useUserStore } from '@/store/userStore';
 import { useCountdown } from '@/hooks/useCountdown';
-import { formatCurrency, formatDateTime, getStatusText, cn } from '@/utils';
-import { currentUser } from '@/mock/data';
+import { formatCurrency, formatDateTime, cn } from '@/utils';
 import type { PurchaseOrder } from '@/types';
 
-function CountdownDisplay({ deadline, isUrgent, onExpire }: { deadline: string; isUrgent: boolean; onExpire?: () => void }) {
-  const { hours, minutes, seconds, expired } = useCountdown(deadline);
-  const isUrgentNow = hours < 12;
-  const displayUrgent = isUrgent || isUrgentNow;
+function CountdownDisplay({ deadline }: { deadline: string }) {
+  const { days, hours, minutes, expired } = useCountdown(deadline);
 
   if (expired) {
     return (
@@ -31,16 +30,15 @@ function CountdownDisplay({ deadline, isUrgent, onExpire }: { deadline: string; 
     );
   }
 
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}天`);
+  if (hours > 0) parts.push(`${hours}小时`);
+  parts.push(`${minutes}分`);
+
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 text-xs font-mono font-medium',
-        displayUrgent ? 'text-status-danger animate-pulse' : 'text-slate-600'
-      )}
-    >
-      <Clock className={cn('w-3 h-3', displayUrgent && 'text-status-danger')} />
-      {String(hours).padStart(2, '0')}:{String(minutes).padStart(2, '0')}:
-      {String(seconds).padStart(2, '0')}
+    <span className="inline-flex items-center gap-1 text-xs font-mono font-medium text-slate-600">
+      <Clock className="w-3 h-3" />
+      {parts.join('')}
     </span>
   );
 }
@@ -57,8 +55,42 @@ function ApprovalLevelBadge({ level }: { level: number }) {
   );
 }
 
+function StatusBadge({ order, isTimeout }: { order: PurchaseOrder; isTimeout: boolean }) {
+  if (order.approvalStatus === 'approved') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-status-success/10 text-status-success">
+        <CheckCircle2 className="w-3 h-3" />
+        已通过
+      </span>
+    );
+  }
+  if (order.approvalStatus === 'rejected') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
+        <XCircle className="w-3 h-3" />
+        已驳回
+      </span>
+    );
+  }
+  if (isTimeout) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-status-danger/10 text-status-danger">
+        <AlertTriangle className="w-3 h-3" />
+        已超时，自动升级中
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-primary-100 text-primary-700">
+      <Clock className="w-3 h-3" />
+      待审批
+    </span>
+  );
+}
+
 export default function Approval() {
-  const { approveOrder, rejectOrder, getPendingApprovals, orders } = usePurchaseStore();
+  const { approveOrder, rejectOrder } = usePurchaseStore();
+  const { currentUser } = useUserStore();
   const [searchText, setSearchText] = useState('');
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionMode, setActionMode] = useState<'approve' | 'reject'>('approve');
@@ -73,7 +105,12 @@ export default function Approval() {
     return () => clearInterval(timer);
   }, []);
 
-  const pendingOrders = useMemo(() => getPendingApprovals(currentUser.role), [orders, currentUser.role]);
+  const hasPermission = currentUser.role === 'equipment' || currentUser.role === 'admin';
+
+  const pendingOrders = usePurchaseStore((state) => {
+    if (!hasPermission) return [];
+    return state.getPendingApprovals(currentUser.role);
+  });
 
   const filteredOrders = pendingOrders.filter(
     (o) =>
@@ -81,12 +118,6 @@ export default function Approval() {
       o.supplierName.toLowerCase().includes(searchText.toLowerCase()) ||
       o.creatorName.toLowerCase().includes(searchText.toLowerCase())
   );
-
-  const isUrgentOrder = (order: PurchaseOrder) => {
-    if (!order.deadline) return false;
-    const diff = new Date(order.deadline).getTime() - now.getTime();
-    return diff < 12 * 60 * 60 * 1000;
-  };
 
   const isTimeoutOrder = (order: PurchaseOrder) => {
     if (!order.deadline) return false;
@@ -114,20 +145,21 @@ export default function Approval() {
     setOpinion('');
   };
 
-  const urgentCount = filteredOrders.filter((o) => isUrgentOrder(o)).length;
   const timeoutCount = filteredOrders.filter((o) => isTimeoutOrder(o)).length;
 
-  const getApprovalStatusClass = (order: PurchaseOrder) => {
-    if (isTimeoutOrder(order)) return 'status-rejected';
-    if (order.approvalStatus === 'approved') return 'status-approved';
-    if (order.approvalStatus === 'rejected') return 'status-rejected';
-    return 'status-pending';
-  };
-
-  const getApprovalStatusText = (order: PurchaseOrder) => {
-    if (isTimeoutOrder(order)) return '已超时';
-    return getStatusText(order.approvalStatus);
-  };
+  if (!hasPermission) {
+    return (
+      <div className="p-6 h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">
+            <Inbox className="w-10 h-10 text-slate-400" />
+          </div>
+          <h3 className="text-lg font-medium text-slate-700 mb-1">暂无审批权限</h3>
+          <p className="text-sm text-slate-500">您的角色没有采购审批权限</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -141,26 +173,36 @@ export default function Approval() {
             <p className="text-sm text-slate-500 mt-0.5">待审批采购订单列表，支持审批操作</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {timeoutCount > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-status-danger/10 rounded-lg">
-              <AlertTriangle className="w-4 h-4 text-status-danger" />
-              <span className="text-sm font-medium text-status-danger">
-                已超时 {timeoutCount} 单，需升级审批
-              </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="glass-card p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-500 mb-1">待审批</p>
+              <p className="text-3xl font-bold text-status-warning">{filteredOrders.length}</p>
             </div>
-          )}
-          {urgentCount > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-status-danger/10 rounded-lg">
-              <AlertTriangle className="w-4 h-4 text-status-danger" />
-              <span className="text-sm font-medium text-status-danger">紧急 {urgentCount} 单</span>
+            <div className="w-14 h-14 rounded-full bg-status-warning/10 flex items-center justify-center">
+              <Clock className="w-7 h-7 text-status-warning" />
             </div>
-          )}
-          <div className="flex items-center gap-2 px-4 py-2 bg-status-warning/10 rounded-lg">
-            <Clock className="w-4 h-4 text-status-warning" />
-            <span className="text-sm font-medium text-status-warning">
-              待审批 {filteredOrders.length} 单
-            </span>
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <span className="text-xs text-slate-400">需要您处理的采购订单</span>
+          </div>
+        </div>
+
+        <div className="glass-card p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-500 mb-1">已超时</p>
+              <p className="text-3xl font-bold text-status-danger">{timeoutCount}</p>
+            </div>
+            <div className="w-14 h-14 rounded-full bg-status-danger/10 flex items-center justify-center">
+              <AlertTriangle className="w-7 h-7 text-status-danger" />
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <span className="text-xs text-slate-400">超时将自动升级至下一级审批</span>
           </div>
         </div>
       </div>
@@ -198,10 +240,9 @@ export default function Approval() {
             </thead>
             <tbody>
               {filteredOrders.map((order) => {
-                const urgent = isUrgentOrder(order);
                 const timeout = isTimeoutOrder(order);
                 return (
-                  <tr key={order.id} className={cn('table-row', urgent && !timeout && 'bg-status-warning/5')}>
+                  <tr key={order.id} className={cn('table-row', timeout && 'bg-status-danger/5')}>
                     <td className="px-4 py-3.5">
                       <span className="text-sm font-mono font-medium text-slate-800">
                         {order.id.toUpperCase()}
@@ -234,13 +275,11 @@ export default function Approval() {
                       <ApprovalLevelBadge level={order.approvalLevel} />
                     </td>
                     <td className="px-4 py-3.5">
-                      <span className={getApprovalStatusClass(order)}>
-                        {getApprovalStatusText(order)}
-                      </span>
+                      <StatusBadge order={order} isTimeout={timeout} />
                     </td>
                     <td className="px-4 py-3.5">
                       {order.deadline ? (
-                        <CountdownDisplay deadline={order.deadline} isUrgent={urgent} />
+                        <CountdownDisplay deadline={order.deadline} />
                       ) : (
                         <span className="text-xs text-slate-400">-</span>
                       )}
@@ -268,8 +307,11 @@ export default function Approval() {
               })}
               {filteredOrders.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
-                    暂无待审批订单
+                  <td colSpan={9} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Inbox className="w-12 h-12 text-slate-300" />
+                      <p className="text-slate-400">暂无待审批订单</p>
+                    </div>
                   </td>
                 </tr>
               )}

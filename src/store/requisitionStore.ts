@@ -6,6 +6,7 @@ import { generateId } from '@/utils';
 import { useInventoryStore } from './inventoryStore';
 import { useOutboundStore } from './outboundStore';
 import { useApprovalStore } from './approvalStore';
+import { useBudgetStore } from './budgetStore';
 
 interface RequisitionState {
   requisitions: Requisition[];
@@ -19,16 +20,6 @@ interface RequisitionState {
   escalateTimeout: (id: string) => boolean;
   checkAndEscalateAllTimeouts: () => { requisitionCount: number; purchaseCount: number };
 }
-
-const getDepartmentBudget = (departmentId: string): { budget: number; used: number; remaining: number } => {
-  const dept = departments.find(d => d.id === departmentId);
-  if (!dept) return { budget: 0, used: 0, remaining: 0 };
-  return {
-    budget: dept.monthlyBudget,
-    used: dept.usedBudget,
-    remaining: dept.monthlyBudget - dept.usedBudget,
-  };
-};
 
 const allocateStock = (materialId: string, quantity: number, inventories: Inventory[]): { items: OutboundItem[]; success: boolean; message?: string } => {
   const available = inventories
@@ -106,8 +97,9 @@ export const useRequisitionStore = create<RequisitionState>()(
         }));
         const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0);
 
-        const budget = getDepartmentBudget(data.departmentId);
-        const needsApproval = totalAmount > budget.remaining;
+        const budgetStore = useBudgetStore.getState();
+        const budgetInfo = budgetStore.getBudgetInfo(data.departmentId);
+        const needsApproval = totalAmount > budgetInfo.remaining;
 
         const newRequisition: Requisition = {
           id: generateId(),
@@ -121,7 +113,9 @@ export const useRequisitionStore = create<RequisitionState>()(
           deadline: needsApproval ? new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() : undefined,
         };
 
-        if (!needsApproval) {
+        if (needsApproval) {
+          budgetStore.addPendingBudget(data.departmentId, totalAmount);
+        } else {
           const invState = useInventoryStore.getState();
           const outboundState = useOutboundStore.getState();
 
@@ -135,9 +129,10 @@ export const useRequisitionStore = create<RequisitionState>()(
           }
 
           for (const oi of outboundItems) {
-            invState.updateInventory(oi.inventoryId,
-              invState.inventories.find(i => i.id === oi.inventoryId)!.quantity - oi.quantity
-            );
+            const inv = invState.inventories.find(i => i.id === oi.inventoryId);
+            if (inv) {
+              invState.updateInventory(oi.inventoryId, inv.quantity - oi.quantity);
+            }
           }
 
           outboundState.createOutboundOrder({
@@ -147,6 +142,8 @@ export const useRequisitionStore = create<RequisitionState>()(
             items: outboundItems,
             totalAmount,
           });
+
+          budgetStore.addUsedBudget(data.departmentId, totalAmount);
         }
 
         set(state => ({ requisitions: [newRequisition, ...state.requisitions] }));
@@ -177,6 +174,7 @@ export const useRequisitionStore = create<RequisitionState>()(
         if (nextLevel > 3) {
           const invState = useInventoryStore.getState();
           const outboundState = useOutboundStore.getState();
+          const budgetStore = useBudgetStore.getState();
 
           const outboundItems: OutboundItem[] = [];
           for (const item of req.items) {
@@ -202,6 +200,9 @@ export const useRequisitionStore = create<RequisitionState>()(
             totalAmount: req.totalAmount,
           });
 
+          budgetStore.reducePendingBudget(req.departmentId, req.totalAmount);
+          budgetStore.addUsedBudget(req.departmentId, req.totalAmount);
+
           set(state => ({
             requisitions: state.requisitions.map(r =>
               r.id === id ? { ...r, status: 'approved', currentApprover: '', approvalLevel: 3 } : r
@@ -225,6 +226,12 @@ export const useRequisitionStore = create<RequisitionState>()(
       },
 
       rejectRequisition: (id, approverId, approverName, opinion) => {
+        const req = get().getRequisitionById(id);
+        if (req) {
+          const budgetStore = useBudgetStore.getState();
+          budgetStore.reducePendingBudget(req.departmentId, req.totalAmount);
+        }
+
         const approvalState = useApprovalStore.getState();
         approvalState.addRecord({
           requisitionId: id,
@@ -261,11 +268,13 @@ export const useRequisitionStore = create<RequisitionState>()(
         if (nextLevel > 3) {
           const invState = useInventoryStore.getState();
           const outboundState = useOutboundStore.getState();
+          const budgetStore = useBudgetStore.getState();
 
           const outboundItems: OutboundItem[] = [];
           for (const item of req.items) {
             const alloc = allocateStock(item.materialId, item.quantity, invState.inventories);
             if (!alloc.success) {
+              budgetStore.reducePendingBudget(req.departmentId, req.totalAmount);
               set(state => ({
                 requisitions: state.requisitions.map(r =>
                   r.id === id ? { ...r, status: 'rejected', currentApprover: '' } : r
@@ -290,6 +299,9 @@ export const useRequisitionStore = create<RequisitionState>()(
             items: outboundItems,
             totalAmount: req.totalAmount,
           });
+
+          budgetStore.reducePendingBudget(req.departmentId, req.totalAmount);
+          budgetStore.addUsedBudget(req.departmentId, req.totalAmount);
 
           set(state => ({
             requisitions: state.requisitions.map(r =>
